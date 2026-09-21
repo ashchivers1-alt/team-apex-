@@ -1,0 +1,226 @@
+// Team Apexx coaching platform — data model
+// All physical quantities are persisted in metric units (kg, cm) regardless
+// of the unit system the coach used to enter them. `preferredUnits` only
+// controls how numbers are displayed/entered in the UI.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// NOTE: SQLite has no native enum type, so Prisma enums can't be used here.
+// All "enum-like" fields below are plain Strings whose allowed values are
+// defined once, in code, in src/lib/enums.ts, and validated with zod at
+// every API boundary. See that file for the canonical value lists:
+// Sex, Goal, UnitPreference, BodyFatMethod, ActivityCategory,
+// RestingEnergyMethod, DeficitTargetMode, PlanChangeType.
+
+model Client {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  archived  Boolean  @default(false)
+
+  // --- Required calculation inputs ---
+  name            String
+  sex             String // Sex: MALE | FEMALE
+  age             Int
+  heightCm        Float
+  currentWeightKg Float
+  preferredUnits  String @default("METRIC") // UnitPreference: METRIC | IMPERIAL
+
+  // --- Optional body composition ---
+  bodyFatPercent Float?
+  bodyFatMethod  String? // BodyFatMethod
+  bodyFatDate    DateTime?
+
+  // --- Goal & targets ---
+  goal            String // Goal: FAT_LOSS | CONTEST_PREP | MAINTENANCE | MUSCLE_GAIN
+  targetWeightKg  Float?
+  targetDate      DateTime?
+
+  // --- Competitor-specific ---
+  isCompetitor Boolean   @default(false)
+  division     String?
+  showDate     DateTime?
+
+  // --- Activity context (guides, does not by itself set, the multiplier) ---
+  occupation           String?
+  generalActivityLevel String? // ActivityCategory
+  avgDailySteps        Int?
+  resistanceFreqPerWk  Int?
+  resistanceSessionMin Int?
+  cardioType           String?
+  cardioFreqPerWk      Int?
+  cardioSessionMin     Int?
+
+  // --- Known current intake (optional, informational at intake) ---
+  currentCalorieIntake Int?
+  currentProteinG      Float?
+  currentFatG          Float?
+  currentCarbG         Float?
+
+  // --- Free-text coaching context (not validated numeric inputs) ---
+  dietHistoryNotes String?
+  coachNotes       String? // PRIVATE — medication, medical conditions, menstrual-cycle context. Never exported to client-facing summary.
+
+  maintenancePlans MaintenancePlan[]
+  dietPlans        DietPlan[]
+  macroDayTemplates MacroDayTemplate[]
+  weekdayAssignments WeekdayAssignment[]
+  checkIns         CheckIn[]
+
+  @@index([archived])
+  @@index([name])
+}
+
+// A row is created every time the resting-energy method or activity
+// multiplier changes, or a coach override is entered. The most recent row
+// (by createdAt) is the "current" maintenance setting. The calculated
+// resting/TDEE figures are NOT stored here — they are derived live from the
+// client's stats using `method` + `activityMultiplier`, so they always
+// reflect the client's latest height/weight/age. Only the override (if any)
+// is a stored, fixed number.
+model MaintenancePlan {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  method             String @default("MIFFLIN_ST_JEOR") // RestingEnergyMethod
+  activityMultiplier Float
+  multiplierLabel    String
+
+  // Snapshot of the equation-based estimate at the moment this plan was
+  // created, purely for historical display (the "original calculated
+  // value" that must be preserved even if an override is later entered).
+  calculatedRestingKcal Float
+  calculatedTdeeKcal    Float
+
+  // Coach override
+  overrideKcal   Float?
+  overrideReason String?
+  overrideDate   DateTime?
+
+  changeType String @default("INITIAL") // PlanChangeType
+  notes      String?
+
+  @@index([clientId, createdAt])
+}
+
+// A row is created every time the coach sets/changes the diet target. The
+// most recent row is "current". Values are snapshotted at creation time so
+// the historical timeline stays meaningful even if maintenance is later
+// recalculated.
+model DietPlan {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  targetMode  String // DeficitTargetMode
+  targetValue Float? // meaning depends on targetMode (lb/wk, kg/wk, %BW/wk, kcal/day, % deficit)
+
+  maintenanceKcalUsed Float // selected maintenance at time of setting
+  bodyWeightKgUsed    Float
+
+  dailyTargetKcal  Float
+  weeklyTargetKcal Float
+  dailyDeficitKcal Float
+  deficitPercentOfTdee Float
+  weeklyLossPercentBodyweight Float
+
+  isFlagged     Boolean @default(false)
+  flagReasons   String? // JSON-encoded string array
+
+  changeType String @default("INITIAL") // PlanChangeType
+  reason     String?
+
+  @@index([clientId, createdAt])
+}
+
+// A reusable "type of day" (e.g. Training day, Rest day, Refeed day) with
+// its own calorie + macro targets. Assigned to weekdays via
+// WeekdayAssignment so the same template can be reused across days.
+model MacroDayTemplate {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  name String
+
+  calorieKcal Float
+
+  proteinMode  String // 'g' | 'g_per_kg'
+  proteinValue Float
+  fatMode      String // 'g' | 'g_per_kg'
+  fatValue     Float
+
+  // If set, overrides the remainder-based carb calculation.
+  carbOverrideG Float?
+
+  assignments WeekdayAssignment[]
+
+  @@index([clientId])
+}
+
+// weekday: 0 = Monday ... 6 = Sunday (ISO-ish, explicit rather than
+// relying on Date.getDay() locale assumptions)
+model WeekdayAssignment {
+  id         String @id @default(cuid())
+  clientId   String
+  client     Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  weekday    Int
+  templateId String
+  template   MacroDayTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, weekday])
+  @@index([clientId])
+}
+
+model CheckIn {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  date      DateTime // calendar date of the check-in (morning)
+  createdAt DateTime @default(now())
+
+  weightKg Float?
+
+  // Reported ACTUAL intake — distinct from the prescribed target on
+  // DietPlan/MacroDayTemplate.
+  actualCalorieIntake Int?
+  actualProteinG      Float?
+  actualFatG          Float?
+  actualCarbG         Float?
+
+  steps             Int?
+  cardioMinutes     Int?
+  cardioTypeNote    String?
+
+  trainingSessionsCompleted Int?
+  trainingPerformanceNotes  String?
+
+  hunger    Int? // 1-5
+  energy    Int? // 1-5
+  sleepHours Float?
+  sleepQuality Int? // 1-5
+  recovery  Int? // 1-5
+
+  digestionNotes       String?
+  menstrualCycleNotes  String?
+
+  adherencePercent Int? // 0-100, coach-estimated adherence to the plan
+
+  coachComment  String?
+  clientComment String?
+
+  @@unique([clientId, date])
+  @@index([clientId, date])
+}

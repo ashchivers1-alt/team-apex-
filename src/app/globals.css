@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-ink-50 text-ink-900 antialiased;
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-ink-100 bg-white p-5 shadow-sm;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-apex-600 text-white hover:bg-apex-700;
+  }
+  .btn-secondary {
+    @apply btn bg-ink-100 text-ink-800 hover:bg-ink-200;
+  }
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700;
+  }
+  .input {
+    @apply w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 placeholder:text-ink-400 focus:border-apex-500 focus:outline-none focus:ring-1 focus:ring-apex-500;
+  }
+  .label {
+    @apply mb-1 block text-xs font-medium uppercase tracking-wide text-ink-500;
+  }
+  .field-hint {
+    @apply mt-1 text-xs text-ink-500;
+  }
+  .badge {
+    @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+  .badge-warning {
+    @apply badge bg-amber-100 text-amber-800;
+  }
+  .badge-critical {
+    @apply badge bg-red-100 text-red-800;
+  }
+  .badge-info {
+    @apply badge bg-apex-100 text-apex-800;
+  }
+  .badge-ok {
+    @apply badge bg-emerald-100 text-emerald-800;
+  }
+  .section-title {
+    @apply text-base font-semibold text-ink-900;
+  }
+  .table-base {
+    @apply w-full text-left text-sm;
+  }
+  .table-base th {
+    @apply border-b border-ink-100 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-ink-500;
+  }
+  .table-base td {
+    @apply border-b border-ink-50 px-3 py-2;
+  }
+}
+
+@media print {
+  nav,
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
+}
