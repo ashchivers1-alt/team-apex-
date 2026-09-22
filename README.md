@@ -16,16 +16,18 @@ straightforward, boring, maintainable stack:
 
 - **Next.js 14 (App Router) + TypeScript** — a single codebase for UI and
   API routes, server-side rendering where useful, one deployment artifact.
-- **SQLite via Prisma** — zero-config relational database stored as a single
-  file (`prisma/dev.db`), which also makes backup trivial (copy the file, or
-  use the built-in export/import feature below). Easy to swap for
-  Postgres/MySQL later by changing `prisma/schema.prisma`'s `datasource`
-  and re-running migrations, without touching application code.
+- **PostgreSQL via Prisma** — a real relational database, reachable from
+  anywhere, which is what makes deploying this to normal hosting (e.g.
+  Vercel) work: Vercel's servers have no persistent local disk, so a
+  file-based database (SQLite) would lose data between requests. A free
+  hosted Postgres instance (e.g. [Neon](https://neon.tech)) fixes that,
+  and the same connection string works for local development too — see
+  §7 for deployment.
 - **Tailwind CSS** — clean, responsive styling without a component library
   to fight with.
 - **Recharts** — weight/calorie/step charts.
 - **iron-session** — signed, encrypted, stateless session cookies for a
-  single-coach login (see §11 Security & scope).
+  single-coach login (see §6 Security & scope).
 - **Vitest** — unit tests for every calculation, isolated from the UI/DB
   (`src/lib/calculations/`, `src/lib/calculations/__tests__/`).
 
@@ -44,11 +46,19 @@ it is independently testable and easy to audit against the spec.
 
 ### Steps
 
+You need a Postgres database to point at. The quickest way to get one free,
+with no credit card, is [neon.tech](https://neon.tech) — sign up, create a
+project, and copy its connection string (Neon shows it on the project
+dashboard, looks like `postgresql://user:password@host/dbname?sslmode=require`).
+Any other Postgres (local, Docker, Supabase, RDS, etc.) works the same way —
+just put its connection string in `DATABASE_URL`.
+
 ```bash
 npm install
 
 cp .env.example .env
 # Edit .env:
+#  - DATABASE_URL: your Postgres connection string (see above)
 #  - SESSION_SECRET: any random string, 32+ characters
 #    (generate one with: openssl rand -base64 32)
 #  - COACH_EMAIL: the email you'll sign in with
@@ -60,7 +70,7 @@ cp .env.example .env
 #    ...or, for the simplest possible local run, set COACH_PASSWORD to a
 #    plain-text password instead of COACH_PASSWORD_HASH.
 
-npx prisma migrate deploy   # creates prisma/dev.db and applies the schema
+npx prisma migrate deploy   # applies the schema to your database
 npm run seed                # optional: adds two synthetic sample clients
 
 npm run dev                 # http://localhost:3000
@@ -274,10 +284,13 @@ numbers) during development, and matched precisely.
 
 ## 6. Data handling & scope
 
-- All data is stored in a local SQLite file (`prisma/dev.db`, git-ignored).
-  Nothing is sent to any third-party service.
+- All data is stored in your Postgres database (Neon or otherwise —
+  wherever `DATABASE_URL` points). Nothing is sent to any third-party
+  service other than that database itself.
 - **Export** (Data page, or `GET /api/export`) downloads a complete JSON
-  backup of every client, plan and check-in.
+  backup of every client, plan and check-in — useful as an app-level backup
+  independent of whatever backup/point-in-time-restore your Postgres host
+  provides (Neon, for instance, keeps its own automatic backups too).
 - **Import/restore** (Data page, or `POST /api/import`) **replaces all
   current data** with the contents of an uploaded backup file. This is
   destructive and irreversible from within the app — the UI requires an
@@ -294,8 +307,7 @@ configured via environment variables, protecting every page and API route
 behind session middleware (`src/middleware.ts`). This is appropriate for:
 
 - a single coach running it locally on their own machine, or
-- a single coach hosting it privately (e.g. on a small VPS) for their own
-  use.
+- a single coach hosting it on Vercel/a VPS/etc. for their own use.
 
 It is **not** a multi-tenant SaaS product — there is no per-coach account
 system, role-based access, or audit log beyond the plan-change history
@@ -303,17 +315,53 @@ already described above. If you deploy this somewhere publicly reachable:
 
 - Set a strong, unique `SESSION_SECRET` and a strong coach password (use
   `COACH_PASSWORD_HASH`, not plaintext `COACH_PASSWORD`).
-- Serve it over HTTPS (the session cookie is marked `secure` in production).
-- Put the SQLite file, and any backup files you export, somewhere with
-  appropriate access controls — they contain personal and health-adjacent
-  information (body-fat %, weight, medical/medication/menstrual-cycle
-  notes).
+- Serve it over HTTPS (Vercel does this by default; the session cookie is
+  marked `secure` in production either way).
+- Treat your Postgres connection string and any exported backup files as
+  sensitive — they contain personal and health-adjacent information
+  (body-fat %, weight, medical/medication/menstrual-cycle notes).
 - Nothing here is exposed through a public route without authentication;
   there is no logging of request bodies or health data to external services.
 
 ---
 
-## 7. What's genuinely unfinished / known limitations
+## 7. Deploying it (Vercel + Neon, both free)
+
+This gives you a real, always-on `https://your-app.vercel.app` link, usable
+from any browser — no terminal required after the one-time setup below.
+
+1. **Database — [neon.tech](https://neon.tech)**: sign up (GitHub login
+   works), create a project, then open its dashboard and copy the
+   connection string it shows you (starts `postgresql://...`). That's your
+   `DATABASE_URL`.
+2. **Hosting — [vercel.com](https://vercel.com)**: sign up with your GitHub
+   account, click "Add New… → Project", and pick this repository
+   (`ashchivers1-alt/team-apex-`) and the `claude/team-apexx-coaching-app-m6brtx`
+   branch (or your default branch, once merged).
+3. Before the first deploy, add these **Environment Variables** in
+   Vercel's project settings (Settings → Environment Variables):
+   - `DATABASE_URL` — the Neon connection string from step 1
+   - `SESSION_SECRET` — a random 32+ character string
+   - `COACH_EMAIL` — the email you'll sign in with
+   - `COACH_PASSWORD_HASH` — generate locally with
+     `node scripts/hash-password.mjs "your-password"` and paste the result
+     in as-is (Vercel's environment variable UI does not need the `\$`
+     escaping that a `.env` *file* needs — that quirk is specific to
+     Next.js reading `.env` files, not Vercel's dashboard).
+4. Deploy. Vercel runs `npm install` then `npm run build`, which now also
+   runs `prisma generate` and `prisma migrate deploy` automatically (see
+   `package.json`), so your database schema is created on first deploy.
+5. Once it's live, optionally run `npm run seed` **locally** with that same
+   `DATABASE_URL` in your `.env` to add the two sample clients to your
+   hosted database too.
+6. Sign in at your new Vercel URL with the `COACH_EMAIL`/password from
+   step 3.
+
+Every future `git push` to that branch redeploys automatically.
+
+---
+
+## 8. What's genuinely unfinished / known limitations
 
 Being direct about gaps rather than papering over them:
 
@@ -347,10 +395,10 @@ Being direct about gaps rather than papering over them:
 
 ---
 
-## 8. Project layout
+## 9. Project layout
 
 ```
-prisma/schema.prisma        Data model (SQLite; see comments for the
+prisma/schema.prisma        Data model (PostgreSQL; see comments for the
                              enum-like string fields and why)
 prisma/seed.ts               Synthetic sample clients
 src/lib/calculations/        Pure, framework-free calculation library

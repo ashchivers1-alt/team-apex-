@@ -8,15 +8,16 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-// NOTE: SQLite has no native enum type, so Prisma enums can't be used here.
-// All "enum-like" fields below are plain Strings whose allowed values are
-// defined once, in code, in src/lib/enums.ts, and validated with zod at
-// every API boundary. See that file for the canonical value lists:
-// Sex, Goal, UnitPreference, BodyFatMethod, ActivityCategory,
+// NOTE: "Enum-like" fields below are plain Strings rather than native
+// Postgres enums, so the allowed-value lists have one source of truth —
+// src/lib/enums.ts — shared by zod validation and the UI's <select>
+// options, instead of being duplicated into the schema and requiring a
+// migration every time a value is added. See that file for the canonical
+// value lists: Sex, Goal, UnitPreference, BodyFatMethod, ActivityCategory,
 // RestingEnergyMethod, DeficitTargetMode, PlanChangeType.
 
 model Client {
