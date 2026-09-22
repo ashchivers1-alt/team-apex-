@@ -207,5 +207,14 @@ function buildPlanTimeline(client: FullClient) {
       detail: `${Math.round(p.dailyTargetKcal)} kcal/day${p.reason ? ` — ${p.reason}` : ""}`
     });
   });
+  client.checkIns
+    .filter((c) => c.planChangeNotes)
+    .forEach((c) => {
+      items.push({
+        date: new Date(c.date),
+        label: "Diet/cardio/plan change noted at check-in",
+        detail: c.planChangeNotes as string
+      });
+    });
   return items.sort((a, b) => b.date.getTime() - a.date.getTime());
 }

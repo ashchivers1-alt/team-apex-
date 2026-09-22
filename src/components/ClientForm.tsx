@@ -8,7 +8,8 @@ import {
   BODY_FAT_METHOD_VALUES,
   BODY_FAT_METHOD_LABELS,
   ACTIVITY_CATEGORY_VALUES,
-  UnitPreferenceValue
+  UnitPreferenceValue,
+  WEEKDAY_LABELS
 } from "@/lib/enums";
 import { ACTIVITY_MULTIPLIERS } from "@/lib/calculations/energy";
 import { kgToLb, lbToKg, cmToFeetInches, feetInchesToCm, round } from "@/lib/calculations/units";
@@ -44,6 +45,7 @@ export interface ClientFormValues {
   currentCarbG: number | null;
   dietHistoryNotes: string | null;
   coachNotes: string | null;
+  checkInDays: number[];
 }
 
 const emptyValues: ClientFormValues = {
@@ -75,7 +77,8 @@ const emptyValues: ClientFormValues = {
   currentFatG: null,
   currentCarbG: null,
   dietHistoryNotes: null,
-  coachNotes: null
+  coachNotes: null,
+  checkInDays: [0, 3]
 };
 
 export default function ClientForm({ initial }: { initial?: Partial<ClientFormValues> }) {
@@ -345,6 +348,36 @@ export default function ClientForm({ initial }: { initial?: Partial<ClientFormVa
             </div>
           </div>
         )}
+      </section>
+
+      <section className="card space-y-4">
+        <h2 className="section-title">Check-in schedule</h2>
+        <p className="text-sm text-ink-500">
+          Which days this client is expected to submit an update. Usually fixed, but change it anytime — there's
+          no history kept, just the current setting.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {WEEKDAY_LABELS.map((label, weekday) => {
+            const active = values.checkInDays.includes(weekday);
+            return (
+              <button
+                key={weekday}
+                type="button"
+                onClick={() =>
+                  set(
+                    "checkInDays",
+                    active
+                      ? values.checkInDays.filter((d) => d !== weekday)
+                      : [...values.checkInDays, weekday].sort()
+                  )
+                }
+                className={active ? "badge-info px-3 py-1.5 text-sm" : "badge bg-ink-100 px-3 py-1.5 text-sm text-ink-500"}
+              >
+                {label.slice(0, 3)}
+              </button>
+            );
+          })}
+        </div>
       </section>
 
       <section className="card space-y-4">

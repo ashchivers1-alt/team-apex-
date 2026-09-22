@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { FullClient } from "@/types/models";
 import { GOAL_LABELS, GoalValue } from "@/lib/enums";
-import { buildMaintenanceView } from "@/lib/clientCalculations";
+import { buildMaintenanceView, mostRecentMissedCheckInDay } from "@/lib/clientCalculations";
 import { trendSlope, rollingAverage } from "@/lib/calculations/trends";
 import { calculateObservedTdee } from "@/lib/calculations/recalibration";
 import { daysUntil } from "@/lib/calculations/contestPrep";
@@ -86,8 +86,22 @@ function DashboardCard({ client }: { client: FullClient }) {
     : null;
 
   const flags: string[] = [];
-  if (daysSinceCheckIn == null) flags.push("No check-ins logged yet");
-  else if (daysSinceCheckIn > 9) flags.push(`No check-in in ${daysSinceCheckIn} days`);
+  if (client.checkInDays.length > 0) {
+    const missed = mostRecentMissedCheckInDay(
+      client.checkInDays,
+      client.checkIns.map((c) => new Date(c.date)),
+      new Date()
+    );
+    if (missed) {
+      flags.push(`Missed scheduled check-in: ${missed.toLocaleDateString("en-GB", { weekday: "long" })}`);
+    } else if (daysSinceCheckIn == null) {
+      flags.push("No check-ins logged yet");
+    }
+  } else if (daysSinceCheckIn == null) {
+    flags.push("No check-ins logged yet");
+  } else if (daysSinceCheckIn > 9) {
+    flags.push(`No check-in in ${daysSinceCheckIn} days`);
+  }
   if (diet?.isFlagged) flags.push("Current diet plan was flagged for review");
   if (slope.warning) flags.push("Weight trend: insufficient data for a reliable slope");
 

@@ -55,7 +55,9 @@ export const clientInputSchema = z.object({
   currentCarbG: optionalNumber,
 
   dietHistoryNotes: optionalString,
-  coachNotes: optionalString
+  coachNotes: optionalString,
+
+  checkInDays: z.array(z.number().int().min(0).max(6)).default([])
 });
 
 export type ClientInput = z.infer<typeof clientInputSchema>;
@@ -102,6 +104,8 @@ export const weekdayAssignmentInputSchema = z.object({
 export const checkInInputSchema = z.object({
   date: z.string().min(1),
   weightKg: optionalNumber,
+  reportedAverageWeightKg: optionalNumber,
+  planChangeNotes: optionalString,
   actualCalorieIntake: optionalInt,
   actualProteinG: optionalNumber,
   actualFatG: optionalNumber,

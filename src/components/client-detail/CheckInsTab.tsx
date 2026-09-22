@@ -2,10 +2,13 @@
 
 import { useState } from "react";
 import type { FullClient, CheckIn } from "@/types/models";
+import { WEEKDAY_LABELS } from "@/lib/enums";
 
 interface CheckInFormState {
   date: string;
   weightKg: string;
+  reportedAverageWeightKg: string;
+  planChangeNotes: string;
   actualCalorieIntake: string;
   actualProteinG: string;
   actualFatG: string;
@@ -35,6 +38,8 @@ function blankForm(): CheckInFormState {
   return {
     date: todayIso(),
     weightKg: "",
+    reportedAverageWeightKg: "",
+    planChangeNotes: "",
     actualCalorieIntake: "",
     actualProteinG: "",
     actualFatG: "",
@@ -61,6 +66,8 @@ function checkInToForm(c: CheckIn): CheckInFormState {
   return {
     date: new Date(c.date).toISOString().slice(0, 10),
     weightKg: c.weightKg?.toString() ?? "",
+    reportedAverageWeightKg: c.reportedAverageWeightKg?.toString() ?? "",
+    planChangeNotes: c.planChangeNotes ?? "",
     actualCalorieIntake: c.actualCalorieIntake?.toString() ?? "",
     actualProteinG: c.actualProteinG?.toString() ?? "",
     actualFatG: c.actualFatG?.toString() ?? "",
@@ -129,6 +136,8 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
     const body = {
       date: form.date,
       weightKg: numOrNull(form.weightKg),
+      reportedAverageWeightKg: numOrNull(form.reportedAverageWeightKg),
+      planChangeNotes: form.planChangeNotes || null,
       actualCalorieIntake: numOrNull(form.actualCalorieIntake),
       actualProteinG: numOrNull(form.actualProteinG),
       actualFatG: numOrNull(form.actualFatG),
@@ -184,8 +193,52 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 
+  const now = new Date();
+  const isoWeekday = (now.getDay() + 6) % 7; // 0=Mon..6=Sun, matching checkInDays convention
+  const monday = new Date(now);
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(now.getDate() - isoWeekday);
+  const loggedDatesThisWeek = new Set(client.checkIns.map((c) => new Date(c.date).toISOString().slice(0, 10)));
+  const weekSchedule = client.checkInDays
+    .slice()
+    .sort()
+    .map((weekday) => {
+      const date = new Date(monday.getTime() + weekday * 86_400_000);
+      return {
+        weekday,
+        label: WEEKDAY_LABELS[weekday],
+        isPast: date.getTime() < monday.getTime() + isoWeekday * 86_400_000,
+        isToday: weekday === isoWeekday,
+        done: loggedDatesThisWeek.has(date.toISOString().slice(0, 10))
+      };
+    });
+
   return (
     <div className="space-y-6">
+      {client.checkInDays.length > 0 && (
+        <section className="card">
+          <h2 className="section-title mb-3">This week's schedule</h2>
+          <div className="flex flex-wrap gap-2">
+            {weekSchedule.map((d) => (
+              <span
+                key={d.weekday}
+                className={
+                  d.done
+                    ? "badge-ok"
+                    : d.isPast
+                      ? "badge-critical"
+                      : d.isToday
+                        ? "badge-info"
+                        : "badge bg-ink-100 text-ink-500"
+                }
+              >
+                {d.label.slice(0, 3)} {d.done ? "✓" : d.isPast ? "missed" : d.isToday ? "today" : ""}
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="card space-y-4">
         <h2 className="section-title">{editingId ? "Edit check-in" : "Log a check-in"}</h2>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -194,6 +247,11 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
             <input type="date" className="input" value={form.date} onChange={(e) => set("date", e.target.value)} />
           </div>
           <NumField label="Morning weight (kg)" value={form.weightKg} onChange={(v) => set("weightKg", v)} />
+          <NumField
+            label="Reported average weight (kg, optional)"
+            value={form.reportedAverageWeightKg}
+            onChange={(v) => set("reportedAverageWeightKg", v)}
+          />
           <NumField label="Actual calories" value={form.actualCalorieIntake} onChange={(v) => set("actualCalorieIntake", v)} />
           <NumField label="Steps" value={form.steps} onChange={(v) => set("steps", v)} />
           <NumField label="Actual protein (g)" value={form.actualProteinG} onChange={(v) => set("actualProteinG", v)} />
@@ -224,6 +282,15 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label className="label">Diet / cardio / plan change notes</label>
+            <textarea
+              className="input min-h-[60px]"
+              placeholder="e.g. Reduced cardio to 20 min due to knee. Added 20g carbs on training days."
+              value={form.planChangeNotes}
+              onChange={(e) => set("planChangeNotes", e.target.value)}
+            />
+          </div>
           <div>
             <label className="label">Training performance notes</label>
             <textarea
@@ -282,13 +349,14 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
               <th>Steps</th>
               <th>Adherence</th>
               <th>Hunger/Energy/Recovery</th>
+              <th>Plan change notes</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {sortedCheckIns.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-6 text-center text-ink-400">
+                <td colSpan={8} className="py-6 text-center text-ink-400">
                   No check-ins logged yet.
                 </td>
               </tr>
@@ -296,12 +364,20 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
             {sortedCheckIns.map((c) => (
               <tr key={c.id}>
                 <td>{new Date(c.date).toLocaleDateString("en-GB")}</td>
-                <td>{c.weightKg ? `${c.weightKg} kg` : "—"}</td>
+                <td>
+                  {c.weightKg ? `${c.weightKg} kg` : "—"}
+                  {c.reportedAverageWeightKg != null && (
+                    <span className="ml-1 text-xs text-ink-400">(avg {c.reportedAverageWeightKg})</span>
+                  )}
+                </td>
                 <td>{c.actualCalorieIntake ?? "—"}</td>
                 <td>{c.steps ?? "—"}</td>
                 <td>{c.adherencePercent != null ? `${c.adherencePercent}%` : "—"}</td>
                 <td>
                   {c.hunger ?? "-"}/{c.energy ?? "-"}/{c.recovery ?? "-"}
+                </td>
+                <td className="max-w-[220px] truncate" title={c.planChangeNotes ?? ""}>
+                  {c.planChangeNotes || "—"}
                 </td>
                 <td className="whitespace-nowrap text-right">
                   <button className="mr-2 text-xs text-apex-600 hover:underline" onClick={() => loadForEdit(c)}>

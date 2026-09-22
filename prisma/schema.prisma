@@ -69,6 +69,12 @@ model Client {
   dietHistoryNotes String?
   coachNotes       String? // PRIVATE — medication, medical conditions, menstrual-cycle context. Never exported to client-facing summary.
 
+  // Weekday check-in schedule: which days (0=Mon..6=Sun) this client is
+  // expected to submit an update on. Usually fixed but editable anytime —
+  // current setting only, no history (unlike maintenance/diet plans, a
+  // missed/changed schedule doesn't need an audit trail).
+  checkInDays Int[] @default([])
+
   maintenancePlans MaintenancePlan[]
   dietPlans        DietPlan[]
   macroDayTemplates MacroDayTemplate[]
@@ -193,6 +199,15 @@ model CheckIn {
   createdAt DateTime @default(now())
 
   weightKg Float?
+  // Optional pre-computed average (e.g. from an external tracking app) —
+  // logged alongside the single-day reading rather than instead of it, so
+  // the coach isn't forced to reconcile the two.
+  reportedAverageWeightKg Float?
+
+  // Diet, cardio, training or general plan changes noted at this update —
+  // distinct from the day-to-day subjective fields below, so "what changed
+  // and when" stays easy to scan back through on the Trends timeline.
+  planChangeNotes String?
 
   // Reported ACTUAL intake — distinct from the prescribed target on
   // DietPlan/MacroDayTemplate.

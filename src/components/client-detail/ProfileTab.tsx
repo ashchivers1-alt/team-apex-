@@ -6,7 +6,8 @@ import {
   GOAL_LABELS,
   GoalValue,
   BODY_FAT_METHOD_LABELS,
-  BodyFatMethodValue
+  BodyFatMethodValue,
+  WEEKDAY_LABELS
 } from "@/lib/enums";
 import { ACTIVITY_MULTIPLIERS } from "@/lib/calculations/energy";
 import { kgToLb, cmToFeetInches } from "@/lib/calculations/units";
@@ -42,6 +43,18 @@ export default function ProfileTab({ client }: { client: FullClient; onChanged: 
           value={`${client.currentWeightKg.toFixed(1)} kg (${kgToLb(client.currentWeightKg).toFixed(1)} lb)`}
         />
         <Field label="Goal" value={GOAL_LABELS[client.goal as GoalValue] ?? client.goal} />
+        <Field
+          label="Check-in schedule"
+          value={
+            client.checkInDays.length > 0
+              ? client.checkInDays
+                  .slice()
+                  .sort()
+                  .map((d) => WEEKDAY_LABELS[d].slice(0, 3))
+                  .join(", ")
+              : "Not set"
+          }
+        />
         <Field
           label="Target weight"
           value={client.targetWeightKg ? `${client.targetWeightKg.toFixed(1)} kg` : null}

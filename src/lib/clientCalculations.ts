@@ -105,3 +105,31 @@ export function activeDietPlanForDate(client: FullClient, date: Date): DietPlan 
   )[0];
   return earliest ?? null;
 }
+
+/**
+ * The most recent scheduled check-in day (0=Mon..6=Sun, this calendar
+ * week only) that has already passed without a logged check-in on that
+ * date — or null if the client has no fixed schedule, or nothing's been
+ * missed yet this week.
+ */
+export function mostRecentMissedCheckInDay(
+  checkInDays: number[],
+  loggedDates: Date[],
+  now: Date
+): Date | null {
+  if (checkInDays.length === 0) return null;
+  const isoWeekday = (now.getDay() + 6) % 7;
+  const monday = new Date(now);
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(now.getDate() - isoWeekday);
+
+  const loggedIso = new Set(loggedDates.map((d) => d.toISOString().slice(0, 10)));
+
+  const missed = checkInDays
+    .filter((w) => w <= isoWeekday)
+    .map((w) => new Date(monday.getTime() + w * 86_400_000))
+    .filter((d) => !loggedIso.has(d.toISOString().slice(0, 10)))
+    .sort((a, b) => b.getTime() - a.getTime());
+
+  return missed[0] ?? null;
+}
