@@ -133,3 +133,29 @@ export function mostRecentMissedCheckInDay(
 
   return missed[0] ?? null;
 }
+
+export interface DietPlanComparison {
+  previous: DietPlan;
+  current: DietPlan;
+  dailyKcalDelta: number;
+  weeklyKcalDelta: number;
+  deficitPercentDelta: number;
+}
+
+/**
+ * Previous-vs-new comparison between the two most recent diet plans, for
+ * showing "what just changed" (daily/weekly kcal, deficit %) rather than
+ * making the coach re-derive it by reading two separate history rows.
+ * Returns null if there's no prior plan to compare against.
+ */
+export function compareDietPlans(client: FullClient): DietPlanComparison | null {
+  const [current, previous] = client.dietPlans; // already ordered desc by createdAt
+  if (!current || !previous) return null;
+  return {
+    previous,
+    current,
+    dailyKcalDelta: current.dailyTargetKcal - previous.dailyTargetKcal,
+    weeklyKcalDelta: current.weeklyTargetKcal - previous.weeklyTargetKcal,
+    deficitPercentDelta: current.deficitPercentOfTdee - previous.deficitPercentOfTdee
+  };
+}

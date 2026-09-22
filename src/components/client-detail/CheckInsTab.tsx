@@ -3,6 +3,9 @@
 import { useState } from "react";
 import type { FullClient, CheckIn } from "@/types/models";
 import { WEEKDAY_LABELS } from "@/lib/enums";
+import { compareDietPlans } from "@/lib/clientCalculations";
+import { calculateMacroPlan, GramsMode } from "@/lib/calculations/macros";
+import { round } from "@/lib/calculations/units";
 
 interface CheckInFormState {
   date: string;
@@ -213,8 +216,87 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
       };
     });
 
+  const latestDiet = client.dietPlans[0];
+  const dietComparison = compareDietPlans(client);
+
+  const todayTemplate = client.weekdayAssignments.find((a) => a.weekday === isoWeekday)?.template;
+  const todayMacro = todayTemplate
+    ? calculateMacroPlan({
+        calorieBudgetKcal: todayTemplate.calorieKcal,
+        bodyWeightKg: client.currentWeightKg,
+        proteinMode: todayTemplate.proteinMode as GramsMode,
+        proteinValue: todayTemplate.proteinValue,
+        fatMode: todayTemplate.fatMode as GramsMode,
+        fatValue: todayTemplate.fatValue,
+        carbOverrideG: todayTemplate.carbOverrideG
+      })
+    : null;
+
   return (
     <div className="space-y-6">
+      {latestDiet && (
+        <section className="card space-y-4">
+          <h2 className="section-title">Current plan</h2>
+          <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+            <div>
+              <div className="text-ink-500">Daily target</div>
+              <div className="font-semibold">{Math.round(latestDiet.dailyTargetKcal)} kcal</div>
+            </div>
+            <div>
+              <div className="text-ink-500">Weekly target</div>
+              <div className="font-semibold">{Math.round(latestDiet.weeklyTargetKcal)} kcal</div>
+            </div>
+            <div>
+              <div className="text-ink-500">Deficit</div>
+              <div className="font-semibold">{round(latestDiet.deficitPercentOfTdee, 1)}% of TDEE</div>
+            </div>
+            <div>
+              <div className="text-ink-500">{todayTemplate ? `Today (${todayTemplate.name})` : "Today's macros"}</div>
+              <div className="font-semibold">
+                {todayMacro
+                  ? `P${Math.round(todayMacro.proteinG)} F${Math.round(todayMacro.fatG)} C${Math.round(todayMacro.carbG)}`
+                  : "No day template assigned"}
+              </div>
+            </div>
+          </div>
+
+          {dietComparison && (
+            <div className="rounded-lg bg-ink-50 p-3 text-sm">
+              <div className="mb-1 font-semibold text-ink-800">
+                Changed {new Date(dietComparison.current.createdAt).toLocaleDateString("en-GB")}
+                {dietComparison.current.reason ? ` — ${dietComparison.current.reason}` : ""}
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div>
+                  <span className="text-ink-500">Daily: </span>
+                  {Math.round(dietComparison.previous.dailyTargetKcal)} → {Math.round(dietComparison.current.dailyTargetKcal)} kcal
+                  <span className={dietComparison.dailyKcalDelta < 0 ? "ml-1 text-red-600" : "ml-1 text-emerald-600"}>
+                    ({dietComparison.dailyKcalDelta >= 0 ? "+" : ""}
+                    {Math.round(dietComparison.dailyKcalDelta)})
+                  </span>
+                </div>
+                <div>
+                  <span className="text-ink-500">Weekly: </span>
+                  {Math.round(dietComparison.previous.weeklyTargetKcal)} → {Math.round(dietComparison.current.weeklyTargetKcal)} kcal
+                  <span className={dietComparison.weeklyKcalDelta < 0 ? "ml-1 text-red-600" : "ml-1 text-emerald-600"}>
+                    ({dietComparison.weeklyKcalDelta >= 0 ? "+" : ""}
+                    {Math.round(dietComparison.weeklyKcalDelta)})
+                  </span>
+                </div>
+                <div>
+                  <span className="text-ink-500">Deficit: </span>
+                  {round(dietComparison.previous.deficitPercentOfTdee, 1)}% → {round(dietComparison.current.deficitPercentOfTdee, 1)}%
+                  <span className="ml-1 text-ink-500">
+                    ({dietComparison.deficitPercentDelta >= 0 ? "+" : ""}
+                    {round(dietComparison.deficitPercentDelta, 1)}pp)
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
       {client.checkInDays.length > 0 && (
         <section className="card">
           <h2 className="section-title mb-3">This week's schedule</h2>

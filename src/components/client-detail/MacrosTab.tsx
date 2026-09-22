@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { FullClient } from "@/types/models";
+import type { FullClient, MacroDayTemplate } from "@/types/models";
 import { calculateMacroPlan, summariseWeeklyPlan, GramsMode } from "@/lib/calculations/macros";
 import { GRAMS_MODE_VALUES, WEEKDAY_LABELS } from "@/lib/enums";
 import { buildMaintenanceView } from "@/lib/clientCalculations";
@@ -27,10 +27,23 @@ const blankTemplate: TemplateFormState = {
   carbOverrideG: ""
 };
 
+function templateToForm(t: MacroDayTemplate): TemplateFormState {
+  return {
+    name: t.name,
+    calorieKcal: String(t.calorieKcal),
+    proteinMode: t.proteinMode as GramsMode,
+    proteinValue: String(t.proteinValue),
+    fatMode: t.fatMode as GramsMode,
+    fatValue: String(t.fatValue),
+    carbOverrideG: t.carbOverrideG != null ? String(t.carbOverrideG) : ""
+  };
+}
+
 export default function MacrosTab({ client, onChanged }: { client: FullClient; onChanged: () => void }) {
   const [form, setForm] = useState<TemplateFormState>(blankTemplate);
   const [saving, setSaving] = useState(false);
   const [savingAssignments, setSavingAssignments] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<MacroDayTemplate | null>(null);
 
   const latestMaintenance = client.maintenancePlans[0];
   const maintenanceView = latestMaintenance ? buildMaintenanceView(client, latestMaintenance) : null;
@@ -51,23 +64,61 @@ export default function MacrosTab({ client, onChanged }: { client: FullClient; o
     [previewCalories, form, client.currentWeightKg]
   );
 
+  // The as-saved values for whichever template is being edited, so the
+  // preview can show a live before/after diff as the form changes.
+  const before = useMemo(
+    () =>
+      editingTemplate
+        ? calculateMacroPlan({
+            calorieBudgetKcal: editingTemplate.calorieKcal,
+            bodyWeightKg: client.currentWeightKg,
+            proteinMode: editingTemplate.proteinMode as GramsMode,
+            proteinValue: editingTemplate.proteinValue,
+            fatMode: editingTemplate.fatMode as GramsMode,
+            fatValue: editingTemplate.fatValue,
+            carbOverrideG: editingTemplate.carbOverrideG
+          })
+        : null,
+    [editingTemplate, client.currentWeightKg]
+  );
+
+  function startEdit(t: MacroDayTemplate) {
+    setEditingTemplate(t);
+    setForm(templateToForm(t));
+  }
+
+  function cancelEdit() {
+    setEditingTemplate(null);
+    setForm(blankTemplate);
+  }
+
   async function saveTemplate() {
     setSaving(true);
-    await fetch(`/api/clients/${client.id}/macro-templates`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: form.name,
-        calorieKcal: Number(form.calorieKcal),
-        proteinMode: form.proteinMode,
-        proteinValue: Number(form.proteinValue),
-        fatMode: form.fatMode,
-        fatValue: Number(form.fatValue),
-        carbOverrideG: form.carbOverrideG === "" ? null : Number(form.carbOverrideG)
-      })
-    });
+    const body = {
+      name: form.name,
+      calorieKcal: Number(form.calorieKcal),
+      proteinMode: form.proteinMode,
+      proteinValue: Number(form.proteinValue),
+      fatMode: form.fatMode,
+      fatValue: Number(form.fatValue),
+      carbOverrideG: form.carbOverrideG === "" ? null : Number(form.carbOverrideG)
+    };
+    if (editingTemplate) {
+      await fetch(`/api/clients/${client.id}/macro-templates/${editingTemplate.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+    } else {
+      await fetch(`/api/clients/${client.id}/macro-templates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+    }
     setSaving(false);
     setForm(blankTemplate);
+    setEditingTemplate(null);
     onChanged();
   }
 
@@ -134,12 +185,22 @@ export default function MacrosTab({ client, onChanged }: { client: FullClient; o
                 carbOverrideG: t.carbOverrideG
               });
               return (
-                <div key={t.id} className="rounded-lg border border-ink-100 p-3 text-sm">
+                <div
+                  key={t.id}
+                  className={`rounded-lg border p-3 text-sm ${
+                    editingTemplate?.id === t.id ? "border-apex-400 bg-apex-50" : "border-ink-100"
+                  }`}
+                >
                   <div className="mb-1 flex items-center justify-between">
                     <span className="font-semibold">{t.name}</span>
-                    <button className="text-xs text-red-600 hover:underline" onClick={() => deleteTemplate(t.id)}>
-                      Delete
-                    </button>
+                    <span>
+                      <button className="mr-2 text-xs text-apex-600 hover:underline" onClick={() => startEdit(t)}>
+                        Edit
+                      </button>
+                      <button className="text-xs text-red-600 hover:underline" onClick={() => deleteTemplate(t.id)}>
+                        Delete
+                      </button>
+                    </span>
                   </div>
                   <div className="text-ink-500">{Math.round(t.calorieKcal)} kcal</div>
                   <div className="mt-1 text-xs text-ink-600">
@@ -232,17 +293,27 @@ export default function MacrosTab({ client, onChanged }: { client: FullClient; o
               value={form.carbOverrideG}
               onChange={(e) => setForm((f) => ({ ...f, carbOverrideG: e.target.value }))}
             />
-            <button
-              className="btn-primary"
-              disabled={saving || !form.name || !form.calorieKcal}
-              onClick={saveTemplate}
-            >
-              {saving ? "Saving..." : "Add day template"}
-            </button>
+            <div className="flex gap-2">
+              <button
+                className="btn-primary"
+                disabled={saving || !form.name || !form.calorieKcal}
+                onClick={saveTemplate}
+              >
+                {saving ? "Saving..." : editingTemplate ? "Save changes" : "Add day template"}
+              </button>
+              {editingTemplate && (
+                <button className="btn-secondary" onClick={cancelEdit}>
+                  Cancel edit
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="space-y-2 rounded-lg border border-ink-100 p-4 text-sm">
-            <h3 className="font-semibold">Preview</h3>
+            <h3 className="font-semibold">{editingTemplate ? `Editing "${editingTemplate.name}"` : "Preview"}</h3>
+            {before && (
+              <MacroDiff before={before} after={preview} />
+            )}
             <div className="flex justify-between">
               <span className="text-ink-500">Protein</span>
               <span>
@@ -336,6 +407,52 @@ export default function MacrosTab({ client, onChanged }: { client: FullClient; o
           />
         )}
       </section>
+    </div>
+  );
+}
+
+/** One row of a before/after macro diff, e.g. "Protein: 150g → 160g (+10g)". */
+function DiffRow({ label, before, after, unit }: { label: string; before: number; after: number; unit: string }) {
+  const delta = round(after - before, unit === "kcal" ? 0 : 1);
+  const beforeR = round(before, unit === "kcal" ? 0 : 1);
+  const afterR = round(after, unit === "kcal" ? 0 : 1);
+  if (Math.abs(delta) < (unit === "kcal" ? 1 : 0.1)) {
+    return (
+      <div className="flex justify-between">
+        <span className="text-ink-500">{label}</span>
+        <span>
+          {afterR} {unit} <span className="text-ink-400">(unchanged)</span>
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex justify-between">
+      <span className="text-ink-500">{label}</span>
+      <span>
+        {beforeR} → {afterR} {unit}{" "}
+        <span className={delta > 0 ? "text-emerald-600" : "text-red-600"}>
+          ({delta > 0 ? "+" : ""}
+          {delta})
+        </span>
+      </span>
+    </div>
+  );
+}
+
+function MacroDiff({
+  before,
+  after
+}: {
+  before: ReturnType<typeof calculateMacroPlan>;
+  after: ReturnType<typeof calculateMacroPlan>;
+}) {
+  return (
+    <div className="mb-2 space-y-1 rounded-lg bg-apex-50 p-2">
+      <DiffRow label="Calories" before={before.totalKcal} after={after.totalKcal} unit="kcal" />
+      <DiffRow label="Protein" before={before.proteinG} after={after.proteinG} unit="g" />
+      <DiffRow label="Fat" before={before.fatG} after={after.fatG} unit="g" />
+      <DiffRow label="Carbs" before={before.carbG} after={after.carbG} unit="g" />
     </div>
   );
 }
