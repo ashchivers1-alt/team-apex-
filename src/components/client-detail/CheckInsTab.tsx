@@ -129,6 +129,7 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
   const [form, setForm] = useState<CheckInFormState>(blankForm());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showMore, setShowMore] = useState(false);
 
   function set<K extends keyof CheckInFormState>(key: K, value: CheckInFormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -178,6 +179,7 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
     setSaving(false);
     setForm(blankForm());
     setEditingId(null);
+    setShowMore(false);
     onChanged();
   }
 
@@ -190,6 +192,24 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
   function loadForEdit(c: CheckIn) {
     setEditingId(c.id);
     setForm(checkInToForm(c));
+    const hasExtraDetails =
+      c.actualProteinG != null ||
+      c.actualFatG != null ||
+      c.actualCarbG != null ||
+      c.cardioMinutes != null ||
+      c.cardioTypeNote ||
+      c.trainingSessionsCompleted != null ||
+      c.trainingPerformanceNotes ||
+      c.hunger != null ||
+      c.energy != null ||
+      c.sleepHours != null ||
+      c.sleepQuality != null ||
+      c.recovery != null ||
+      c.digestionNotes ||
+      c.menstrualCycleNotes ||
+      c.clientComment ||
+      c.coachComment;
+    setShowMore(Boolean(hasExtraDetails));
   }
 
   const sortedCheckIns = [...client.checkIns].sort(
@@ -322,7 +342,11 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
       )}
 
       <section className="card space-y-4">
-        <h2 className="section-title">{editingId ? "Edit check-in" : "Log a check-in"}</h2>
+        <h2 className="section-title">{editingId ? "Edit check-in" : "Log an update"}</h2>
+        <p className="text-sm text-ink-500">
+          The core fields that actually drive the trend charts, recalibration and decision support. Everything
+          else is optional and tucked under "More details" below.
+        </p>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div>
             <label className="label">Date</label>
@@ -336,24 +360,6 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
           />
           <NumField label="Actual calories" value={form.actualCalorieIntake} onChange={(v) => set("actualCalorieIntake", v)} />
           <NumField label="Steps" value={form.steps} onChange={(v) => set("steps", v)} />
-          <NumField label="Actual protein (g)" value={form.actualProteinG} onChange={(v) => set("actualProteinG", v)} />
-          <NumField label="Actual fat (g)" value={form.actualFatG} onChange={(v) => set("actualFatG", v)} />
-          <NumField label="Actual carbs (g)" value={form.actualCarbG} onChange={(v) => set("actualCarbG", v)} />
-          <NumField label="Cardio (min)" value={form.cardioMinutes} onChange={(v) => set("cardioMinutes", v)} />
-          <div>
-            <label className="label">Cardio type note</label>
-            <input className="input" value={form.cardioTypeNote} onChange={(e) => set("cardioTypeNote", e.target.value)} />
-          </div>
-          <NumField
-            label="Training sessions completed"
-            value={form.trainingSessionsCompleted}
-            onChange={(v) => set("trainingSessionsCompleted", v)}
-          />
-          <NumField label="Hunger (1-5)" value={form.hunger} onChange={(v) => set("hunger", v)} min={1} max={5} />
-          <NumField label="Energy (1-5)" value={form.energy} onChange={(v) => set("energy", v)} min={1} max={5} />
-          <NumField label="Sleep (hours)" value={form.sleepHours} onChange={(v) => set("sleepHours", v)} />
-          <NumField label="Sleep quality (1-5)" value={form.sleepQuality} onChange={(v) => set("sleepQuality", v)} min={1} max={5} />
-          <NumField label="Recovery (1-5)" value={form.recovery} onChange={(v) => set("recovery", v)} min={1} max={5} />
           <NumField
             label="Adherence estimate (%)"
             value={form.adherencePercent}
@@ -363,45 +369,79 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
           />
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <label className="label">Diet / cardio / plan change notes</label>
-            <textarea
-              className="input min-h-[60px]"
-              placeholder="e.g. Reduced cardio to 20 min due to knee. Added 20g carbs on training days."
-              value={form.planChangeNotes}
-              onChange={(e) => set("planChangeNotes", e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">Training performance notes</label>
-            <textarea
-              className="input min-h-[60px]"
-              value={form.trainingPerformanceNotes}
-              onChange={(e) => set("trainingPerformanceNotes", e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">Digestion / bowel movement notes</label>
-            <textarea className="input min-h-[60px]" value={form.digestionNotes} onChange={(e) => set("digestionNotes", e.target.value)} />
-          </div>
-          <div>
-            <label className="label">Menstrual-cycle notes (where relevant)</label>
-            <textarea
-              className="input min-h-[60px]"
-              value={form.menstrualCycleNotes}
-              onChange={(e) => set("menstrualCycleNotes", e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">Client comment</label>
-            <textarea className="input min-h-[60px]" value={form.clientComment} onChange={(e) => set("clientComment", e.target.value)} />
-          </div>
-          <div className="sm:col-span-2">
-            <label className="label">Coach comment</label>
-            <textarea className="input min-h-[60px]" value={form.coachComment} onChange={(e) => set("coachComment", e.target.value)} />
-          </div>
+        <div>
+          <label className="label">Diet / cardio / plan change notes</label>
+          <textarea
+            className="input min-h-[60px]"
+            placeholder="e.g. Reduced cardio to 20 min due to knee. Added 20g carbs on training days."
+            value={form.planChangeNotes}
+            onChange={(e) => set("planChangeNotes", e.target.value)}
+          />
         </div>
+
+        <button
+          type="button"
+          className="text-sm text-apex-600 hover:underline"
+          onClick={() => setShowMore((s) => !s)}
+        >
+          {showMore ? "Hide more details" : "More details (macros, cardio, training, wellbeing...)"}
+        </button>
+
+        {showMore && (
+          <>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <NumField label="Actual protein (g)" value={form.actualProteinG} onChange={(v) => set("actualProteinG", v)} />
+              <NumField label="Actual fat (g)" value={form.actualFatG} onChange={(v) => set("actualFatG", v)} />
+              <NumField label="Actual carbs (g)" value={form.actualCarbG} onChange={(v) => set("actualCarbG", v)} />
+              <NumField label="Cardio (min)" value={form.cardioMinutes} onChange={(v) => set("cardioMinutes", v)} />
+              <div>
+                <label className="label">Cardio type note</label>
+                <input className="input" value={form.cardioTypeNote} onChange={(e) => set("cardioTypeNote", e.target.value)} />
+              </div>
+              <NumField
+                label="Training sessions completed"
+                value={form.trainingSessionsCompleted}
+                onChange={(v) => set("trainingSessionsCompleted", v)}
+              />
+              <NumField label="Hunger (1-5)" value={form.hunger} onChange={(v) => set("hunger", v)} min={1} max={5} />
+              <NumField label="Energy (1-5)" value={form.energy} onChange={(v) => set("energy", v)} min={1} max={5} />
+              <NumField label="Sleep (hours)" value={form.sleepHours} onChange={(v) => set("sleepHours", v)} />
+              <NumField label="Sleep quality (1-5)" value={form.sleepQuality} onChange={(v) => set("sleepQuality", v)} min={1} max={5} />
+              <NumField label="Recovery (1-5)" value={form.recovery} onChange={(v) => set("recovery", v)} min={1} max={5} />
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="label">Training performance notes</label>
+                <textarea
+                  className="input min-h-[60px]"
+                  value={form.trainingPerformanceNotes}
+                  onChange={(e) => set("trainingPerformanceNotes", e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label">Digestion / bowel movement notes</label>
+                <textarea className="input min-h-[60px]" value={form.digestionNotes} onChange={(e) => set("digestionNotes", e.target.value)} />
+              </div>
+              <div>
+                <label className="label">Menstrual-cycle notes (where relevant)</label>
+                <textarea
+                  className="input min-h-[60px]"
+                  value={form.menstrualCycleNotes}
+                  onChange={(e) => set("menstrualCycleNotes", e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label">Client comment</label>
+                <textarea className="input min-h-[60px]" value={form.clientComment} onChange={(e) => set("clientComment", e.target.value)} />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="label">Coach comment</label>
+                <textarea className="input min-h-[60px]" value={form.coachComment} onChange={(e) => set("coachComment", e.target.value)} />
+              </div>
+            </div>
+          </>
+        )}
 
         <div className="flex gap-2">
           <button className="btn-primary" disabled={saving} onClick={handleSave}>
@@ -413,6 +453,7 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
               onClick={() => {
                 setEditingId(null);
                 setForm(blankForm());
+                setShowMore(false);
               }}
             >
               Cancel edit
