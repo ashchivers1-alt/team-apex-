@@ -34,6 +34,7 @@ export default function MacrosTab({ client, onChanged }: { client: FullClient; o
 
   const latestMaintenance = client.maintenancePlans[0];
   const maintenanceView = latestMaintenance ? buildMaintenanceView(client, latestMaintenance) : null;
+  const latestDiet = client.dietPlans[0];
 
   const previewCalories = Number(form.calorieKcal || 0);
   const preview = useMemo(
@@ -325,7 +326,89 @@ export default function MacrosTab({ client, onChanged }: { client: FullClient; o
             </p>
           )}
         </div>
+
+        {latestDiet && (
+          <TargetVsScheduledCard
+            targetDailyKcal={latestDiet.dailyTargetKcal}
+            targetWeeklyKcal={latestDiet.weeklyTargetKcal}
+            scheduledDailyKcal={weeklySummary.dailyAverageKcal}
+            scheduledWeeklyKcal={weeklySummary.weeklyTotalKcal}
+          />
+        )}
       </section>
+    </div>
+  );
+}
+
+function DeltaBadge({ deltaKcal }: { deltaKcal: number }) {
+  const rounded = Math.round(deltaKcal);
+  if (Math.abs(rounded) < 5) {
+    return <span className="badge-ok">on target</span>;
+  }
+  const sign = rounded > 0 ? "+" : "";
+  return (
+    <span className={Math.abs(rounded) > 150 ? "badge-warning" : "badge-info"}>
+      {sign}
+      {rounded} kcal {rounded > 0 ? "above target" : "below target"}
+    </span>
+  );
+}
+
+/**
+ * Puts the flat diet-plan target (set on the Maintenance & diet tab)
+ * directly next to what the day-template schedule actually works out to,
+ * so a mismatch between the two is visible at a glance rather than
+ * requiring the coach to compare two different tabs.
+ */
+function TargetVsScheduledCard({
+  targetDailyKcal,
+  targetWeeklyKcal,
+  scheduledDailyKcal,
+  scheduledWeeklyKcal
+}: {
+  targetDailyKcal: number;
+  targetWeeklyKcal: number;
+  scheduledDailyKcal: number;
+  scheduledWeeklyKcal: number;
+}) {
+  return (
+    <div className="rounded-lg border border-ink-100 p-4">
+      <h3 className="mb-3 text-sm font-semibold text-ink-800">Target vs. what's actually scheduled</h3>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-ink-400">Daily</div>
+          <div className="mt-1 flex items-baseline justify-between">
+            <span className="text-sm text-ink-500">Set target (Maintenance &amp; diet tab)</span>
+            <span className="font-semibold">{Math.round(targetDailyKcal)} kcal</span>
+          </div>
+          <div className="mt-1 flex items-baseline justify-between">
+            <span className="text-sm text-ink-500">Scheduled average (day templates)</span>
+            <span className="font-semibold">{Math.round(scheduledDailyKcal)} kcal</span>
+          </div>
+          <div className="mt-2">
+            <DeltaBadge deltaKcal={scheduledDailyKcal - targetDailyKcal} />
+          </div>
+        </div>
+        <div>
+          <div className="text-xs uppercase tracking-wide text-ink-400">Weekly</div>
+          <div className="mt-1 flex items-baseline justify-between">
+            <span className="text-sm text-ink-500">Set target (Maintenance &amp; diet tab)</span>
+            <span className="font-semibold">{Math.round(targetWeeklyKcal)} kcal</span>
+          </div>
+          <div className="mt-1 flex items-baseline justify-between">
+            <span className="text-sm text-ink-500">Scheduled total (day templates)</span>
+            <span className="font-semibold">{Math.round(scheduledWeeklyKcal)} kcal</span>
+          </div>
+          <div className="mt-2">
+            <DeltaBadge deltaKcal={scheduledWeeklyKcal - targetWeeklyKcal} />
+          </div>
+        </div>
+      </div>
+      <p className="mt-3 text-xs text-ink-500">
+        These are two independent settings — the flat target on the Maintenance &amp; diet tab, and whatever your
+        day templates below actually add up to. The app doesn't force them to match automatically; this card is
+        just here so a mismatch is obvious rather than hidden across two tabs.
+      </p>
     </div>
   );
 }

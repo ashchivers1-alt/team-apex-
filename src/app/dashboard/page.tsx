@@ -5,7 +5,8 @@ import Link from "next/link";
 import type { FullClient } from "@/types/models";
 import { GOAL_LABELS, GoalValue } from "@/lib/enums";
 import { buildMaintenanceView } from "@/lib/clientCalculations";
-import { trendSlope } from "@/lib/calculations/trends";
+import { trendSlope, rollingAverage } from "@/lib/calculations/trends";
+import { calculateObservedTdee } from "@/lib/calculations/recalibration";
 import { daysUntil } from "@/lib/calculations/contestPrep";
 import { round } from "@/lib/calculations/units";
 
@@ -54,11 +55,11 @@ function DashboardCard({ client }: { client: FullClient }) {
   const maintenance = maintenancePlan ? buildMaintenanceView(client, maintenancePlan) : null;
   const diet = client.dietPlans[0];
 
-  const weightEntries = [...client.checkIns]
+  const weightEntriesAll = [...client.checkIns]
     .filter((c) => c.weightKg != null)
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-    .slice(-28)
     .map((c) => ({ date: new Date(c.date), value: c.weightKg as number }));
+  const weightEntries = weightEntriesAll.slice(-28);
   const slope = trendSlope(weightEntries);
   const observedWeeklyKg = slope.slopePerDay != null ? slope.slopePerDay * 7 : null;
   const plannedWeeklyKg = diet ? -((diet.dailyDeficitKcal * 7) / 7700) : null;
@@ -66,6 +67,20 @@ function DashboardCard({ client }: { client: FullClient }) {
   const latestCheckIn = [...client.checkIns].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   )[0];
+  const referenceDate = latestCheckIn ? new Date(latestCheckIn.date) : new Date();
+
+  const intakeEntries = client.checkIns
+    .filter((c) => c.actualCalorieIntake != null)
+    .map((c) => ({ date: new Date(c.date), value: c.actualCalorieIntake as number }));
+  const actualIntake = rollingAverage(intakeEntries, referenceDate, 7);
+
+  const periodStart = new Date(referenceDate.getTime() - 20 * 86_400_000);
+  const recalibration = calculateObservedTdee({
+    periodStart,
+    periodEnd: referenceDate,
+    intakeEntries: intakeEntries.filter((e) => e.date >= periodStart && e.date <= referenceDate),
+    weightEntries: weightEntriesAll.filter((e) => e.date >= periodStart && e.date <= referenceDate)
+  });
   const daysSinceCheckIn = latestCheckIn
     ? Math.round((Date.now() - new Date(latestCheckIn.date).getTime()) / 86_400_000)
     : null;
@@ -84,24 +99,45 @@ function DashboardCard({ client }: { client: FullClient }) {
       </div>
       <p className="text-xs text-ink-500">{GOAL_LABELS[client.goal as GoalValue] ?? client.goal}</p>
 
-      <div className="grid grid-cols-2 gap-2 text-sm">
-        <div>
-          <div className="text-ink-400">Selected maintenance</div>
-          <div className="font-medium">{maintenance ? `${Math.round(maintenance.selectedMaintenanceKcal)} kcal` : "—"}</div>
-        </div>
-        <div>
-          <div className="text-ink-400">Current target</div>
-          <div className="font-medium">{diet ? `${Math.round(diet.dailyTargetKcal)} kcal` : "—"}</div>
-        </div>
-        <div>
-          <div className="text-ink-400">Planned weekly</div>
-          <div className="font-medium">{plannedWeeklyKg != null ? `${round(plannedWeeklyKg, 2)} kg` : "—"}</div>
-        </div>
-        <div>
-          <div className="text-ink-400">Observed weekly</div>
-          <div className="font-medium">{observedWeeklyKg != null ? `${round(observedWeeklyKg, 2)} kg` : "Not enough data"}</div>
-        </div>
-      </div>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-xs text-ink-400">
+            <th className="text-left font-normal"></th>
+            <th className="text-right font-normal">Planned</th>
+            <th className="text-right font-normal">Actual</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td className="text-ink-500">Maintenance</td>
+            <td className="text-right font-medium">
+              {maintenance ? `${Math.round(maintenance.selectedMaintenanceKcal)}` : "—"}
+            </td>
+            <td className="text-right font-medium">
+              {recalibration.observedTdeeKcal != null && recalibration.isReliable
+                ? Math.round(recalibration.observedTdeeKcal)
+                : "—"}
+            </td>
+          </tr>
+          <tr>
+            <td className="text-ink-500">Calories/day</td>
+            <td className="text-right font-medium">{diet ? Math.round(diet.dailyTargetKcal) : "—"}</td>
+            <td className="text-right font-medium">
+              {actualIntake.average != null ? Math.round(actualIntake.average) : "—"}
+              {actualIntake.average != null && (
+                <span className="ml-1 text-xs text-ink-400">({actualIntake.count}/7d)</span>
+              )}
+            </td>
+          </tr>
+          <tr>
+            <td className="text-ink-500">Weekly change</td>
+            <td className="text-right font-medium">{plannedWeeklyKg != null ? `${round(plannedWeeklyKg, 2)} kg` : "—"}</td>
+            <td className="text-right font-medium">
+              {observedWeeklyKg != null ? `${round(observedWeeklyKg, 2)} kg` : "—"}
+            </td>
+          </tr>
+        </tbody>
+      </table>
 
       <div className="text-xs text-ink-500">
         Latest check-in: {latestCheckIn ? new Date(latestCheckIn.date).toLocaleDateString("en-GB") : "None yet"}
