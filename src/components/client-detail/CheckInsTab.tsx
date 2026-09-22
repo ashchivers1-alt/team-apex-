@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { FullClient, CheckIn } from "@/types/models";
 import { WEEKDAY_LABELS } from "@/lib/enums";
-import { compareDietPlans } from "@/lib/clientCalculations";
+import { dietPlanHistory, DietPlanComparison } from "@/lib/clientCalculations";
 import { calculateMacroPlan, GramsMode } from "@/lib/calculations/macros";
 import { round } from "@/lib/calculations/units";
 
@@ -237,7 +237,8 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
     });
 
   const latestDiet = client.dietPlans[0];
-  const dietComparison = compareDietPlans(client);
+  const dietHistory = dietPlanHistory(client);
+  const visibleDietHistory = dietHistory.slice(0, 5);
 
   const todayTemplate = client.weekdayAssignments.find((a) => a.weekday === isoWeekday)?.template;
   const todayMacro = todayTemplate
@@ -280,38 +281,20 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
             </div>
           </div>
 
-          {dietComparison && (
-            <div className="rounded-lg bg-ink-50 p-3 text-sm">
-              <div className="mb-1 font-semibold text-ink-800">
-                Changed {new Date(dietComparison.current.createdAt).toLocaleDateString("en-GB")}
-                {dietComparison.current.reason ? ` — ${dietComparison.current.reason}` : ""}
+          {visibleDietHistory.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-ink-400">
+                Change log (most recent first)
               </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <div>
-                  <span className="text-ink-500">Daily: </span>
-                  {Math.round(dietComparison.previous.dailyTargetKcal)} → {Math.round(dietComparison.current.dailyTargetKcal)} kcal
-                  <span className={dietComparison.dailyKcalDelta < 0 ? "ml-1 text-red-600" : "ml-1 text-emerald-600"}>
-                    ({dietComparison.dailyKcalDelta >= 0 ? "+" : ""}
-                    {Math.round(dietComparison.dailyKcalDelta)})
-                  </span>
-                </div>
-                <div>
-                  <span className="text-ink-500">Weekly: </span>
-                  {Math.round(dietComparison.previous.weeklyTargetKcal)} → {Math.round(dietComparison.current.weeklyTargetKcal)} kcal
-                  <span className={dietComparison.weeklyKcalDelta < 0 ? "ml-1 text-red-600" : "ml-1 text-emerald-600"}>
-                    ({dietComparison.weeklyKcalDelta >= 0 ? "+" : ""}
-                    {Math.round(dietComparison.weeklyKcalDelta)})
-                  </span>
-                </div>
-                <div>
-                  <span className="text-ink-500">Deficit: </span>
-                  {round(dietComparison.previous.deficitPercentOfTdee, 1)}% → {round(dietComparison.current.deficitPercentOfTdee, 1)}%
-                  <span className="ml-1 text-ink-500">
-                    ({dietComparison.deficitPercentDelta >= 0 ? "+" : ""}
-                    {round(dietComparison.deficitPercentDelta, 1)}pp)
-                  </span>
-                </div>
-              </div>
+              {visibleDietHistory.map((c) => (
+                <DietChangeRow key={c.current.id} comparison={c} />
+              ))}
+              {dietHistory.length > visibleDietHistory.length && (
+                <p className="text-xs text-ink-400">
+                  +{dietHistory.length - visibleDietHistory.length} earlier change(s) — full history on the Trends
+                  tab.
+                </p>
+              )}
             </div>
           )}
         </section>
@@ -515,6 +498,43 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
           </tbody>
         </table>
       </section>
+    </div>
+  );
+}
+
+function DietChangeRow({ comparison: c }: { comparison: DietPlanComparison }) {
+  return (
+    <div className="rounded-lg bg-ink-50 p-3 text-sm">
+      <div className="mb-1 font-semibold text-ink-800">
+        {new Date(c.current.createdAt).toLocaleDateString("en-GB")}
+        {c.current.reason ? ` — ${c.current.reason}` : ""}
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div>
+          <span className="text-ink-500">Daily: </span>
+          {Math.round(c.previous.dailyTargetKcal)} → {Math.round(c.current.dailyTargetKcal)} kcal
+          <span className={c.dailyKcalDelta < 0 ? "ml-1 text-red-600" : "ml-1 text-emerald-600"}>
+            ({c.dailyKcalDelta >= 0 ? "+" : ""}
+            {Math.round(c.dailyKcalDelta)})
+          </span>
+        </div>
+        <div>
+          <span className="text-ink-500">Weekly: </span>
+          {Math.round(c.previous.weeklyTargetKcal)} → {Math.round(c.current.weeklyTargetKcal)} kcal
+          <span className={c.weeklyKcalDelta < 0 ? "ml-1 text-red-600" : "ml-1 text-emerald-600"}>
+            ({c.weeklyKcalDelta >= 0 ? "+" : ""}
+            {Math.round(c.weeklyKcalDelta)})
+          </span>
+        </div>
+        <div>
+          <span className="text-ink-500">Deficit: </span>
+          {round(c.previous.deficitPercentOfTdee, 1)}% → {round(c.current.deficitPercentOfTdee, 1)}%
+          <span className="ml-1 text-ink-500">
+            ({c.deficitPercentDelta >= 0 ? "+" : ""}
+            {round(c.deficitPercentDelta, 1)}pp)
+          </span>
+        </div>
+      </div>
     </div>
   );
 }

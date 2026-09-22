@@ -142,15 +142,7 @@ export interface DietPlanComparison {
   deficitPercentDelta: number;
 }
 
-/**
- * Previous-vs-new comparison between the two most recent diet plans, for
- * showing "what just changed" (daily/weekly kcal, deficit %) rather than
- * making the coach re-derive it by reading two separate history rows.
- * Returns null if there's no prior plan to compare against.
- */
-export function compareDietPlans(client: FullClient): DietPlanComparison | null {
-  const [current, previous] = client.dietPlans; // already ordered desc by createdAt
-  if (!current || !previous) return null;
+function diffDietPlans(current: DietPlan, previous: DietPlan): DietPlanComparison {
   return {
     previous,
     current,
@@ -158,4 +150,31 @@ export function compareDietPlans(client: FullClient): DietPlanComparison | null 
     weeklyKcalDelta: current.weeklyTargetKcal - previous.weeklyTargetKcal,
     deficitPercentDelta: current.deficitPercentOfTdee - previous.deficitPercentOfTdee
   };
+}
+
+/**
+ * Previous-vs-new comparison between the two most recent diet plans only
+ * — "what just changed". Returns null if there's no prior plan to compare
+ * against. Prefer `dietPlanHistory` for a full log of every change.
+ */
+export function compareDietPlans(client: FullClient): DietPlanComparison | null {
+  const [current, previous] = client.dietPlans; // already ordered desc by createdAt
+  if (!current || !previous) return null;
+  return diffDietPlans(current, previous);
+}
+
+/**
+ * Every diet-plan change, each compared against the one immediately
+ * before it, most recent first — a running log rather than just the
+ * latest transition. Nothing is ever discarded from this: every plan
+ * ever set is preserved in the database, this just presents each
+ * consecutive pair as a readable diff.
+ */
+export function dietPlanHistory(client: FullClient): DietPlanComparison[] {
+  const plans = client.dietPlans; // already ordered desc by createdAt
+  const history: DietPlanComparison[] = [];
+  for (let i = 0; i < plans.length - 1; i++) {
+    history.push(diffDietPlans(plans[i], plans[i + 1]));
+  }
+  return history;
 }
