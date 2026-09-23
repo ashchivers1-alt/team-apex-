@@ -130,6 +130,10 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [showMore, setShowMore] = useState(false);
+  const [templateEdits, setTemplateEdits] = useState<
+    Record<string, { calorieKcal: string; proteinG: string; fatG: string; carbG: string }>
+  >({});
+  const [savingTemplateId, setSavingTemplateId] = useState<string | null>(null);
 
   function set<K extends keyof CheckInFormState>(key: K, value: CheckInFormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -287,6 +291,60 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Quick inline editing of each currently-deployed diet's own targets
+  // (Training day, Rest day, etc.) — separate from the "actual intake for
+  // this date" fields above, since a coach reviewing check-ins often wants
+  // to adjust the standing plan for a whole day-type, not just log one
+  // day's actual numbers.
+  function getTemplateEdit(templateId: string, macro: ReturnType<typeof calculateMacroPlan>, calorieKcal: number) {
+    return (
+      templateEdits[templateId] ?? {
+        calorieKcal: String(Math.round(calorieKcal)),
+        proteinG: String(Math.round(macro.proteinG)),
+        fatG: String(Math.round(macro.fatG)),
+        carbG: String(Math.round(macro.carbG))
+      }
+    );
+  }
+
+  function setTemplateEditField(
+    templateId: string,
+    macro: ReturnType<typeof calculateMacroPlan>,
+    calorieKcal: number,
+    field: "calorieKcal" | "proteinG" | "fatG" | "carbG",
+    value: string
+  ) {
+    setTemplateEdits((prev) => ({
+      ...prev,
+      [templateId]: { ...getTemplateEdit(templateId, macro, calorieKcal), [field]: value }
+    }));
+  }
+
+  async function saveTemplateEdit(templateId: string) {
+    const edit = templateEdits[templateId];
+    if (!edit) return;
+    setSavingTemplateId(templateId);
+    await fetch(`/api/clients/${client.id}/macro-templates/${templateId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        calorieKcal: Number(edit.calorieKcal),
+        proteinMode: "g",
+        proteinValue: Number(edit.proteinG),
+        fatMode: "g",
+        fatValue: Number(edit.fatG),
+        carbOverrideG: Number(edit.carbG)
+      })
+    });
+    setSavingTemplateId(null);
+    setTemplateEdits((prev) => {
+      const next = { ...prev };
+      delete next[templateId];
+      return next;
+    });
+    onChanged();
+  }
+
   return (
     <div className="space-y-6">
       {latestDiet && (
@@ -310,29 +368,84 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
           {activeTemplates.length > 0 ? (
             <div>
               <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-400">
-                Diets currently deployed
+                Diets currently deployed — adjust any of them directly
               </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {activeTemplates.map(({ template, macro, weekdaysUsed }) => (
-                  <div
-                    key={template.id}
-                    className={`rounded-lg border p-2 text-sm ${
-                      weekdaysUsed.includes(isoWeekday) ? "border-apex-300 bg-apex-50" : "border-ink-100"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold">{template.name}</span>
-                      {weekdaysUsed.includes(isoWeekday) && <span className="badge-info">today</span>}
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                {activeTemplates.map(({ template, macro, weekdaysUsed }) => {
+                  const edit = getTemplateEdit(template.id, macro, template.calorieKcal);
+                  const isDirty =
+                    Number(edit.calorieKcal) !== Math.round(template.calorieKcal) ||
+                    Number(edit.proteinG) !== Math.round(macro.proteinG) ||
+                    Number(edit.fatG) !== Math.round(macro.fatG) ||
+                    Number(edit.carbG) !== Math.round(macro.carbG);
+                  return (
+                    <div
+                      key={template.id}
+                      className={`rounded-lg border p-3 text-sm ${
+                        weekdaysUsed.includes(isoWeekday) ? "border-apex-300 bg-apex-50" : "border-ink-100"
+                      }`}
+                    >
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="font-semibold">{template.name}</span>
+                        <div className="flex items-center gap-2">
+                          {weekdaysUsed.includes(isoWeekday) && <span className="badge-info">today</span>}
+                          <span className="text-xs text-ink-400">
+                            {weekdaysUsed.map((w) => WEEKDAY_LABELS[w].slice(0, 3)).join(", ")}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        {(
+                          [
+                            ["calorieKcal", "Kcal"],
+                            ["proteinG", "Protein"],
+                            ["fatG", "Fat"],
+                            ["carbG", "Carbs"]
+                          ] as const
+                        ).map(([field, label]) => (
+                          <div key={field}>
+                            <label className="label">{label}</label>
+                            <input
+                              type="number"
+                              className="input"
+                              value={edit[field]}
+                              onChange={(e) => setTemplateEditField(template.id, macro, template.calorieKcal, field, e.target.value)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      {isDirty && (
+                        <div className="mt-2 flex items-center justify-between">
+                          <span className="text-xs text-apex-700">
+                            Changed from {Math.round(template.calorieKcal)} kcal · P{Math.round(macro.proteinG)} F
+                            {Math.round(macro.fatG)} C{Math.round(macro.carbG)}
+                          </span>
+                          <div className="flex gap-2">
+                            <button
+                              className="text-xs text-ink-500 hover:underline"
+                              onClick={() =>
+                                setTemplateEdits((prev) => {
+                                  const next = { ...prev };
+                                  delete next[template.id];
+                                  return next;
+                                })
+                              }
+                            >
+                              Revert
+                            </button>
+                            <button
+                              className="btn-primary px-2 py-1 text-xs"
+                              disabled={savingTemplateId === template.id}
+                              onClick={() => saveTemplateEdit(template.id)}
+                            >
+                              {savingTemplateId === template.id ? "Saving..." : "Save"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <div className="text-ink-600">
-                      {Math.round(template.calorieKcal)} kcal · P{Math.round(macro.proteinG)} F
-                      {Math.round(macro.fatG)} C{Math.round(macro.carbG)}
-                    </div>
-                    <div className="text-xs text-ink-400">
-                      {weekdaysUsed.map((w) => WEEKDAY_LABELS[w].slice(0, 3)).join(", ")}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ) : (
