@@ -41,7 +41,7 @@ export interface MacroPlanResult {
   flags: MacroFlag[];
 }
 
-function resolveGrams(mode: GramsMode, value: number, bodyWeightKg: number): number {
+export function resolveGrams(mode: GramsMode, value: number, bodyWeightKg: number): number {
   return mode === "g_per_kg" ? value * bodyWeightKg : value;
 }
 

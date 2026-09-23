@@ -2,7 +2,15 @@
 
 import { useMemo, useState } from "react";
 import type { FullClient, MacroDayTemplate } from "@/types/models";
-import { calculateMacroPlan, summariseWeeklyPlan, GramsMode } from "@/lib/calculations/macros";
+import {
+  calculateMacroPlan,
+  summariseWeeklyPlan,
+  resolveGrams,
+  GramsMode,
+  KCAL_PER_G_PROTEIN,
+  KCAL_PER_G_FAT,
+  KCAL_PER_G_CARB
+} from "@/lib/calculations/macros";
 import { GRAMS_MODE_VALUES, WEEKDAY_LABELS } from "@/lib/enums";
 import { buildMaintenanceView } from "@/lib/clientCalculations";
 import { round } from "@/lib/calculations/units";
@@ -81,6 +89,26 @@ export default function MacrosTab({ client, onChanged }: { client: FullClient; o
         : null,
     [editingTemplate, client.currentWeightKg]
   );
+
+  // Editing protein, fat or an explicit carb override recalculates the
+  // calorie budget to match — calories are a function of the macros, not a
+  // separate number that can silently drift out of sync with them. Left
+  // untouched when there's no carb override yet, since then carbs are
+  // deliberately the remainder of whatever calorie budget is set.
+  function updateMacroField<K extends keyof TemplateFormState>(key: K, value: TemplateFormState[K]) {
+    setForm((f) => {
+      const next = { ...f, [key]: value };
+      if (next.carbOverrideG !== "") {
+        const proteinG = resolveGrams(next.proteinMode, Number(next.proteinValue || 0), client.currentWeightKg);
+        const fatG = resolveGrams(next.fatMode, Number(next.fatValue || 0), client.currentWeightKg);
+        const carbG = Number(next.carbOverrideG || 0);
+        next.calorieKcal = String(
+          Math.round(proteinG * KCAL_PER_G_PROTEIN + fatG * KCAL_PER_G_FAT + carbG * KCAL_PER_G_CARB)
+        );
+      }
+      return next;
+    });
+  }
 
   function startEdit(t: MacroDayTemplate) {
     setEditingTemplate(t);
@@ -242,7 +270,7 @@ export default function MacrosTab({ client, onChanged }: { client: FullClient; o
                 <select
                   className="input"
                   value={form.proteinMode}
-                  onChange={(e) => setForm((f) => ({ ...f, proteinMode: e.target.value as GramsMode }))}
+                  onChange={(e) => updateMacroField("proteinMode", e.target.value as GramsMode)}
                 >
                   {GRAMS_MODE_VALUES.map((m) => (
                     <option key={m} value={m}>
@@ -258,7 +286,7 @@ export default function MacrosTab({ client, onChanged }: { client: FullClient; o
                   step="0.1"
                   className="input"
                   value={form.proteinValue}
-                  onChange={(e) => setForm((f) => ({ ...f, proteinValue: e.target.value }))}
+                  onChange={(e) => updateMacroField("proteinValue", e.target.value)}
                 />
               </div>
               <div>
@@ -266,7 +294,7 @@ export default function MacrosTab({ client, onChanged }: { client: FullClient; o
                 <select
                   className="input"
                   value={form.fatMode}
-                  onChange={(e) => setForm((f) => ({ ...f, fatMode: e.target.value as GramsMode }))}
+                  onChange={(e) => updateMacroField("fatMode", e.target.value as GramsMode)}
                 >
                   {GRAMS_MODE_VALUES.map((m) => (
                     <option key={m} value={m}>
@@ -282,7 +310,7 @@ export default function MacrosTab({ client, onChanged }: { client: FullClient; o
                   step="0.1"
                   className="input"
                   value={form.fatValue}
-                  onChange={(e) => setForm((f) => ({ ...f, fatValue: e.target.value }))}
+                  onChange={(e) => updateMacroField("fatValue", e.target.value)}
                 />
               </div>
             </div>
@@ -291,7 +319,7 @@ export default function MacrosTab({ client, onChanged }: { client: FullClient; o
               type="number"
               className="input"
               value={form.carbOverrideG}
-              onChange={(e) => setForm((f) => ({ ...f, carbOverrideG: e.target.value }))}
+              onChange={(e) => updateMacroField("carbOverrideG", e.target.value)}
             />
             <div className="flex gap-2">
               <button

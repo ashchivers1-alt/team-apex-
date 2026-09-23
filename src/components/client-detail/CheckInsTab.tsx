@@ -4,7 +4,13 @@ import { useState } from "react";
 import type { FullClient, CheckIn } from "@/types/models";
 import { WEEKDAY_LABELS } from "@/lib/enums";
 import { dietPlanHistory, DietPlanComparison } from "@/lib/clientCalculations";
-import { calculateMacroPlan, GramsMode } from "@/lib/calculations/macros";
+import {
+  calculateMacroPlan,
+  GramsMode,
+  KCAL_PER_G_PROTEIN,
+  KCAL_PER_G_FAT,
+  KCAL_PER_G_CARB
+} from "@/lib/calculations/macros";
 import { round } from "@/lib/calculations/units";
 
 interface CheckInFormState {
@@ -305,10 +311,19 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
     field: "calorieKcal" | "proteinG" | "fatG" | "carbG",
     value: string
   ) {
-    setTemplateEdits((prev) => ({
-      ...prev,
-      [templateId]: { ...getTemplateEdit(templateId, macro, calorieKcal), [field]: value }
-    }));
+    setTemplateEdits((prev) => {
+      const next = { ...getTemplateEdit(templateId, macro, calorieKcal), [field]: value };
+      // Editing a macro recalculates the calorie total to match — calories
+      // are a function of protein/fat/carbs, not a separate number that can
+      // silently drift out of sync with them.
+      if (field === "proteinG" || field === "fatG" || field === "carbG") {
+        const p = Number(next.proteinG) || 0;
+        const f = Number(next.fatG) || 0;
+        const c = Number(next.carbG) || 0;
+        next.calorieKcal = String(Math.round(p * KCAL_PER_G_PROTEIN + f * KCAL_PER_G_FAT + c * KCAL_PER_G_CARB));
+      }
+      return { ...prev, [templateId]: next };
+    });
   }
 
   function persistTemplateEdit(templateId: string, edit: { calorieKcal: string; proteinG: string; fatG: string; carbG: string }) {
