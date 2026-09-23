@@ -80,6 +80,7 @@ model Client {
   macroDayTemplates MacroDayTemplate[]
   weekdayAssignments WeekdayAssignment[]
   checkIns         CheckIn[]
+  macroChangeLogs  MacroChangeLog[]
 
   @@index([archived])
   @@index([name])
@@ -175,6 +176,32 @@ model MacroDayTemplate {
   assignments WeekdayAssignment[]
 
   @@index([clientId])
+}
+
+// An append-only record of every edit to a MacroDayTemplate's own numbers
+// (MacroDayTemplate itself is NOT versioned — it's mutable current state).
+// Written whenever a PATCH actually changes calories/protein/fat/carbs, so
+// the Trends timeline can show a real "previous vs. new" diff per diet type
+// rather than just the flat calorie-target history that DietPlan tracks.
+model MacroChangeLog {
+  id           String   @id @default(cuid())
+  clientId     String
+  client       Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  templateId   String
+  templateName String
+  createdAt    DateTime @default(now())
+
+  previousCalorieKcal Float
+  previousProteinG    Float
+  previousFatG        Float
+  previousCarbG       Float
+
+  newCalorieKcal Float
+  newProteinG    Float
+  newFatG        Float
+  newCarbG       Float
+
+  @@index([clientId, createdAt])
 }
 
 // weekday: 0 = Monday ... 6 = Sunday (ISO-ish, explicit rather than

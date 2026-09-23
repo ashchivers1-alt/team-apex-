@@ -11,7 +11,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       dietPlans: { orderBy: { createdAt: "desc" } },
       macroDayTemplates: { orderBy: { createdAt: "asc" } },
       weekdayAssignments: { include: { template: true } },
-      checkIns: { orderBy: { date: "desc" } }
+      checkIns: { orderBy: { date: "desc" } },
+      macroChangeLogs: { orderBy: { createdAt: "desc" } }
     }
   });
   if (!client) {

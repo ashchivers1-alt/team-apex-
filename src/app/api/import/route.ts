@@ -13,7 +13,8 @@ const importSchema = z.object({
     dietPlans: z.array(z.record(z.any())),
     macroDayTemplates: z.array(z.record(z.any())),
     weekdayAssignments: z.array(z.record(z.any())),
-    checkIns: z.array(z.record(z.any()))
+    checkIns: z.array(z.record(z.any())),
+    macroChangeLogs: z.array(z.record(z.any())).optional()
   })
 });
 
@@ -39,6 +40,7 @@ export async function POST(request: NextRequest) {
 
   await prisma.$transaction(async (tx) => {
     // Delete in dependency order.
+    await tx.macroChangeLog.deleteMany();
     await tx.checkIn.deleteMany();
     await tx.weekdayAssignment.deleteMany();
     await tx.macroDayTemplate.deleteMany();
@@ -89,6 +91,13 @@ export async function POST(request: NextRequest) {
       await tx.checkIn.create({
         data: { ...ci, date: toDate(ci.date) ?? new Date(), createdAt: toDate(ci.createdAt) ?? undefined } as unknown as Parameters<
           typeof tx.checkIn.create
+        >[0]["data"]
+      });
+    }
+    for (const l of data.macroChangeLogs ?? []) {
+      await tx.macroChangeLog.create({
+        data: { ...l, createdAt: toDate(l.createdAt) ?? undefined } as unknown as Parameters<
+          typeof tx.macroChangeLog.create
         >[0]["data"]
       });
     }

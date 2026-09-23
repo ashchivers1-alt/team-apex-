@@ -4,7 +4,8 @@ import type {
   DietPlan,
   MacroDayTemplate,
   WeekdayAssignment,
-  CheckIn
+  CheckIn,
+  MacroChangeLog
 } from "@prisma/client";
 
 export type WeekdayAssignmentWithTemplate = WeekdayAssignment & { template: MacroDayTemplate };
@@ -15,6 +16,7 @@ export interface FullClient extends Client {
   macroDayTemplates: MacroDayTemplate[];
   weekdayAssignments: WeekdayAssignmentWithTemplate[];
   checkIns: CheckIn[];
+  macroChangeLogs: MacroChangeLog[];
 }
 
 export type {
@@ -23,5 +25,6 @@ export type {
   DietPlan,
   MacroDayTemplate,
   WeekdayAssignment,
-  CheckIn
+  CheckIn,
+  MacroChangeLog
 };
