@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FullClient, CheckIn } from "@/types/models";
 import { WEEKDAY_LABELS } from "@/lib/enums";
 import { dietPlanHistory, DietPlanComparison } from "@/lib/clientCalculations";
@@ -193,9 +193,6 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
     setEditingId(c.id);
     setForm(checkInToForm(c));
     const hasExtraDetails =
-      c.actualProteinG != null ||
-      c.actualFatG != null ||
-      c.actualCarbG != null ||
       c.cardioMinutes != null ||
       c.cardioTypeNote ||
       c.trainingSessionsCompleted != null ||
@@ -240,25 +237,62 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
   const dietHistory = dietPlanHistory(client);
   const visibleDietHistory = dietHistory.slice(0, 5);
 
-  const todayTemplate = client.weekdayAssignments.find((a) => a.weekday === isoWeekday)?.template;
-  const todayMacro = todayTemplate
-    ? calculateMacroPlan({
-        calorieBudgetKcal: todayTemplate.calorieKcal,
-        bodyWeightKg: client.currentWeightKg,
-        proteinMode: todayTemplate.proteinMode as GramsMode,
-        proteinValue: todayTemplate.proteinValue,
-        fatMode: todayTemplate.fatMode as GramsMode,
-        fatValue: todayTemplate.fatValue,
-        carbOverrideG: todayTemplate.carbOverrideG
-      })
-    : null;
+  // Every distinct day-type currently in the weekly schedule (not just
+  // today's), so the coach can see all active diets at a glance — a
+  // client might be logging against a training-day or rest-day target
+  // depending which day this update is for.
+  const activeTemplates = Array.from(
+    new Map(client.weekdayAssignments.map((a) => [a.template.id, a.template])).values()
+  ).map((t) => ({
+    template: t,
+    macro: calculateMacroPlan({
+      calorieBudgetKcal: t.calorieKcal,
+      bodyWeightKg: client.currentWeightKg,
+      proteinMode: t.proteinMode as GramsMode,
+      proteinValue: t.proteinValue,
+      fatMode: t.fatMode as GramsMode,
+      fatValue: t.fatValue,
+      carbOverrideG: t.carbOverrideG
+    }),
+    weekdaysUsed: client.weekdayAssignments.filter((a) => a.template.id === t.id).map((a) => a.weekday)
+  }));
+
+  function templateMacroForDate(dateStr: string) {
+    if (!dateStr) return null;
+    const weekday = (new Date(`${dateStr}T00:00:00Z`).getUTCDay() + 6) % 7;
+    const entry = activeTemplates.find((t) => t.weekdaysUsed.includes(weekday));
+    return entry ?? null;
+  }
+
+  // New (non-edit) entries default the actual-intake fields to whatever
+  // this date's assigned diet prescribes — a starting point the coach
+  // edits only where the real day differed, rather than retyping numbers
+  // that usually match the plan anyway.
+  function applyDietDefaultsForDate(dateStr: string) {
+    if (editingId) return;
+    const entry = templateMacroForDate(dateStr);
+    if (!entry) return;
+    setForm((f) => ({
+      ...f,
+      actualCalorieIntake: String(Math.round(entry.template.calorieKcal)),
+      actualProteinG: String(Math.round(entry.macro.proteinG)),
+      actualFatG: String(Math.round(entry.macro.fatG)),
+      actualCarbG: String(Math.round(entry.macro.carbG))
+    }));
+  }
+
+  // Prefill on first load for today's default date.
+  useEffect(() => {
+    applyDietDefaultsForDate(form.date);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="space-y-6">
       {latestDiet && (
         <section className="card space-y-4">
           <h2 className="section-title">Current plan</h2>
-          <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
             <div>
               <div className="text-ink-500">Daily target</div>
               <div className="font-semibold">{Math.round(latestDiet.dailyTargetKcal)} kcal</div>
@@ -271,15 +305,39 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
               <div className="text-ink-500">Deficit</div>
               <div className="font-semibold">{round(latestDiet.deficitPercentOfTdee, 1)}% of TDEE</div>
             </div>
+          </div>
+
+          {activeTemplates.length > 0 ? (
             <div>
-              <div className="text-ink-500">{todayTemplate ? `Today (${todayTemplate.name})` : "Today's macros"}</div>
-              <div className="font-semibold">
-                {todayMacro
-                  ? `P${Math.round(todayMacro.proteinG)} F${Math.round(todayMacro.fatG)} C${Math.round(todayMacro.carbG)}`
-                  : "No day template assigned"}
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-400">
+                Diets currently deployed
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {activeTemplates.map(({ template, macro, weekdaysUsed }) => (
+                  <div
+                    key={template.id}
+                    className={`rounded-lg border p-2 text-sm ${
+                      weekdaysUsed.includes(isoWeekday) ? "border-apex-300 bg-apex-50" : "border-ink-100"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold">{template.name}</span>
+                      {weekdaysUsed.includes(isoWeekday) && <span className="badge-info">today</span>}
+                    </div>
+                    <div className="text-ink-600">
+                      {Math.round(template.calorieKcal)} kcal · P{Math.round(macro.proteinG)} F
+                      {Math.round(macro.fatG)} C{Math.round(macro.carbG)}
+                    </div>
+                    <div className="text-xs text-ink-400">
+                      {weekdaysUsed.map((w) => WEEKDAY_LABELS[w].slice(0, 3)).join(", ")}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-          </div>
+          ) : (
+            <p className="text-sm text-ink-400">No day templates assigned yet — set these up on the Macros tab.</p>
+          )}
 
           {visibleDietHistory.length > 0 && (
             <div className="space-y-2">
@@ -327,13 +385,22 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
       <section className="card space-y-4">
         <h2 className="section-title">{editingId ? "Edit check-in" : "Log an update"}</h2>
         <p className="text-sm text-ink-500">
-          The core fields that actually drive the trend charts, recalibration and decision support. Everything
-          else is optional and tucked under "More details" below.
+          The core fields that actually drive the trend charts, recalibration and decision support. Actual
+          calories/macros default to whatever that date's assigned diet prescribes — edit them where the real
+          day differed. Everything else is optional and tucked under "More details" below.
         </p>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div>
             <label className="label">Date</label>
-            <input type="date" className="input" value={form.date} onChange={(e) => set("date", e.target.value)} />
+            <input
+              type="date"
+              className="input"
+              value={form.date}
+              onChange={(e) => {
+                set("date", e.target.value);
+                applyDietDefaultsForDate(e.target.value);
+              }}
+            />
           </div>
           <NumField label="Morning weight (kg)" value={form.weightKg} onChange={(v) => set("weightKg", v)} />
           <NumField
@@ -341,7 +408,6 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
             value={form.reportedAverageWeightKg}
             onChange={(v) => set("reportedAverageWeightKg", v)}
           />
-          <NumField label="Actual calories" value={form.actualCalorieIntake} onChange={(v) => set("actualCalorieIntake", v)} />
           <NumField label="Steps" value={form.steps} onChange={(v) => set("steps", v)} />
           <NumField
             label="Adherence estimate (%)"
@@ -350,6 +416,27 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
             min={0}
             max={100}
           />
+        </div>
+
+        <div>
+          <div className="mb-1 flex items-center justify-between">
+            <label className="label mb-0">Actual intake (defaults to the assigned diet for this date)</label>
+            {!editingId && templateMacroForDate(form.date) && (
+              <button
+                type="button"
+                className="text-xs text-apex-600 hover:underline"
+                onClick={() => applyDietDefaultsForDate(form.date)}
+              >
+                Reset to plan
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <NumField label="Calories" value={form.actualCalorieIntake} onChange={(v) => set("actualCalorieIntake", v)} />
+            <NumField label="Protein (g)" value={form.actualProteinG} onChange={(v) => set("actualProteinG", v)} />
+            <NumField label="Fat (g)" value={form.actualFatG} onChange={(v) => set("actualFatG", v)} />
+            <NumField label="Carbs (g)" value={form.actualCarbG} onChange={(v) => set("actualCarbG", v)} />
+          </div>
         </div>
 
         <div>
@@ -373,9 +460,6 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
         {showMore && (
           <>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <NumField label="Actual protein (g)" value={form.actualProteinG} onChange={(v) => set("actualProteinG", v)} />
-              <NumField label="Actual fat (g)" value={form.actualFatG} onChange={(v) => set("actualFatG", v)} />
-              <NumField label="Actual carbs (g)" value={form.actualCarbG} onChange={(v) => set("actualCarbG", v)} />
               <NumField label="Cardio (min)" value={form.cardioMinutes} onChange={(v) => set("cardioMinutes", v)} />
               <div>
                 <label className="label">Cardio type note</label>
