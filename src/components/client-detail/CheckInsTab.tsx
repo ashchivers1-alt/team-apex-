@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { FullClient, CheckIn } from "@/types/models";
 import { WEEKDAY_LABELS } from "@/lib/enums";
 import { dietPlanHistory, DietPlanComparison } from "@/lib/clientCalculations";
@@ -12,10 +12,6 @@ interface CheckInFormState {
   weightKg: string;
   reportedAverageWeightKg: string;
   planChangeNotes: string;
-  actualCalorieIntake: string;
-  actualProteinG: string;
-  actualFatG: string;
-  actualCarbG: string;
   steps: string;
   cardioMinutes: string;
   cardioTypeNote: string;
@@ -43,10 +39,6 @@ function blankForm(): CheckInFormState {
     weightKg: "",
     reportedAverageWeightKg: "",
     planChangeNotes: "",
-    actualCalorieIntake: "",
-    actualProteinG: "",
-    actualFatG: "",
-    actualCarbG: "",
     steps: "",
     cardioMinutes: "",
     cardioTypeNote: "",
@@ -71,10 +63,6 @@ function checkInToForm(c: CheckIn): CheckInFormState {
     weightKg: c.weightKg?.toString() ?? "",
     reportedAverageWeightKg: c.reportedAverageWeightKg?.toString() ?? "",
     planChangeNotes: c.planChangeNotes ?? "",
-    actualCalorieIntake: c.actualCalorieIntake?.toString() ?? "",
-    actualProteinG: c.actualProteinG?.toString() ?? "",
-    actualFatG: c.actualFatG?.toString() ?? "",
-    actualCarbG: c.actualCarbG?.toString() ?? "",
     steps: c.steps?.toString() ?? "",
     cardioMinutes: c.cardioMinutes?.toString() ?? "",
     cardioTypeNote: c.cardioTypeNote ?? "",
@@ -141,15 +129,16 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
 
   async function handleSave() {
     setSaving(true);
+    const intake = actualIntakeForDate(form.date);
     const body = {
       date: form.date,
       weightKg: numOrNull(form.weightKg),
       reportedAverageWeightKg: numOrNull(form.reportedAverageWeightKg),
       planChangeNotes: form.planChangeNotes || null,
-      actualCalorieIntake: numOrNull(form.actualCalorieIntake),
-      actualProteinG: numOrNull(form.actualProteinG),
-      actualFatG: numOrNull(form.actualFatG),
-      actualCarbG: numOrNull(form.actualCarbG),
+      actualCalorieIntake: intake.calories,
+      actualProteinG: intake.protein,
+      actualFatG: intake.fat,
+      actualCarbG: intake.carbs,
       steps: numOrNull(form.steps),
       cardioMinutes: numOrNull(form.cardioMinutes),
       cardioTypeNote: form.cardioTypeNote || null,
@@ -167,19 +156,20 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
       clientComment: form.clientComment || null
     };
 
-    if (editingId) {
-      await fetch(`/api/clients/${client.id}/checkins/${editingId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      });
-    } else {
-      await fetch(`/api/clients/${client.id}/checkins`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      });
-    }
+    await Promise.all([
+      editingId
+        ? fetch(`/api/clients/${client.id}/checkins/${editingId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          })
+        : fetch(`/api/clients/${client.id}/checkins`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          }),
+      savePendingTemplateEdits()
+    ]);
     setSaving(false);
     setForm(blankForm());
     setEditingId(null);
@@ -268,28 +258,29 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
     return entry ?? null;
   }
 
-  // New (non-edit) entries default the actual-intake fields to whatever
-  // this date's assigned diet prescribes — a starting point the coach
-  // edits only where the real day differed, rather than retyping numbers
-  // that usually match the plan anyway.
-  function applyDietDefaultsForDate(dateStr: string) {
-    if (editingId) return;
+  // A check-in's actual intake is simply whichever diet applies on that
+  // date — training day, rest day, etc. — taking any edit made to that
+  // diet's own block in this same session, so adjusting a diet and
+  // logging the check-in in one action records what was actually eaten.
+  function actualIntakeForDate(dateStr: string) {
     const entry = templateMacroForDate(dateStr);
-    if (!entry) return;
-    setForm((f) => ({
-      ...f,
-      actualCalorieIntake: String(Math.round(entry.template.calorieKcal)),
-      actualProteinG: String(Math.round(entry.macro.proteinG)),
-      actualFatG: String(Math.round(entry.macro.fatG)),
-      actualCarbG: String(Math.round(entry.macro.carbG))
-    }));
+    if (!entry) return { calories: null, protein: null, fat: null, carbs: null };
+    const edit = templateEdits[entry.template.id];
+    if (edit) {
+      return {
+        calories: Number(edit.calorieKcal),
+        protein: Number(edit.proteinG),
+        fat: Number(edit.fatG),
+        carbs: Number(edit.carbG)
+      };
+    }
+    return {
+      calories: Math.round(entry.template.calorieKcal),
+      protein: Math.round(entry.macro.proteinG),
+      fat: Math.round(entry.macro.fatG),
+      carbs: Math.round(entry.macro.carbG)
+    };
   }
-
-  // Prefill on first load for today's default date.
-  useEffect(() => {
-    applyDietDefaultsForDate(form.date);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Quick inline editing of each currently-deployed diet's own targets
   // (Training day, Rest day, etc.) — separate from the "actual intake for
@@ -320,11 +311,8 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
     }));
   }
 
-  async function saveTemplateEdit(templateId: string) {
-    const edit = templateEdits[templateId];
-    if (!edit) return;
-    setSavingTemplateId(templateId);
-    await fetch(`/api/clients/${client.id}/macro-templates/${templateId}`, {
+  function persistTemplateEdit(templateId: string, edit: { calorieKcal: string; proteinG: string; fatG: string; carbG: string }) {
+    return fetch(`/api/clients/${client.id}/macro-templates/${templateId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -336,6 +324,13 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
         carbOverrideG: Number(edit.carbG)
       })
     });
+  }
+
+  async function saveTemplateEdit(templateId: string) {
+    const edit = templateEdits[templateId];
+    if (!edit) return;
+    setSavingTemplateId(templateId);
+    await persistTemplateEdit(templateId, edit);
     setSavingTemplateId(null);
     setTemplateEdits((prev) => {
       const next = { ...prev };
@@ -343,6 +338,17 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
       return next;
     });
     onChanged();
+  }
+
+  // Any diet-type edits still pending (not yet saved via their own Save
+  // button) are saved together with the check-in itself, so "Log
+  // check-in" is a single action that captures everything on the page —
+  // not two separate saves the coach has to remember to trigger.
+  async function savePendingTemplateEdits() {
+    const entries = Object.entries(templateEdits);
+    if (entries.length === 0) return;
+    await Promise.all(entries.map(([templateId, edit]) => persistTemplateEdit(templateId, edit)));
+    setTemplateEdits({});
   }
 
   return (
@@ -364,93 +370,6 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
               <div className="font-semibold">{round(latestDiet.deficitPercentOfTdee, 1)}% of TDEE</div>
             </div>
           </div>
-
-          {activeTemplates.length > 0 ? (
-            <div>
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-400">
-                Diets currently deployed — adjust any of them directly
-              </div>
-              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                {activeTemplates.map(({ template, macro, weekdaysUsed }) => {
-                  const edit = getTemplateEdit(template.id, macro, template.calorieKcal);
-                  const isDirty =
-                    Number(edit.calorieKcal) !== Math.round(template.calorieKcal) ||
-                    Number(edit.proteinG) !== Math.round(macro.proteinG) ||
-                    Number(edit.fatG) !== Math.round(macro.fatG) ||
-                    Number(edit.carbG) !== Math.round(macro.carbG);
-                  return (
-                    <div
-                      key={template.id}
-                      className={`rounded-lg border p-3 text-sm ${
-                        weekdaysUsed.includes(isoWeekday) ? "border-apex-300 bg-apex-50" : "border-ink-100"
-                      }`}
-                    >
-                      <div className="mb-2 flex items-center justify-between">
-                        <span className="font-semibold">{template.name}</span>
-                        <div className="flex items-center gap-2">
-                          {weekdaysUsed.includes(isoWeekday) && <span className="badge-info">today</span>}
-                          <span className="text-xs text-ink-400">
-                            {weekdaysUsed.map((w) => WEEKDAY_LABELS[w].slice(0, 3)).join(", ")}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        {(
-                          [
-                            ["calorieKcal", "Kcal"],
-                            ["proteinG", "Protein"],
-                            ["fatG", "Fat"],
-                            ["carbG", "Carbs"]
-                          ] as const
-                        ).map(([field, label]) => (
-                          <div key={field}>
-                            <label className="label">{label}</label>
-                            <input
-                              type="number"
-                              className="input"
-                              value={edit[field]}
-                              onChange={(e) => setTemplateEditField(template.id, macro, template.calorieKcal, field, e.target.value)}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                      {isDirty && (
-                        <div className="mt-2 flex items-center justify-between">
-                          <span className="text-xs text-apex-700">
-                            Changed from {Math.round(template.calorieKcal)} kcal · P{Math.round(macro.proteinG)} F
-                            {Math.round(macro.fatG)} C{Math.round(macro.carbG)}
-                          </span>
-                          <div className="flex gap-2">
-                            <button
-                              className="text-xs text-ink-500 hover:underline"
-                              onClick={() =>
-                                setTemplateEdits((prev) => {
-                                  const next = { ...prev };
-                                  delete next[template.id];
-                                  return next;
-                                })
-                              }
-                            >
-                              Revert
-                            </button>
-                            <button
-                              className="btn-primary px-2 py-1 text-xs"
-                              disabled={savingTemplateId === template.id}
-                              onClick={() => saveTemplateEdit(template.id)}
-                            >
-                              {savingTemplateId === template.id ? "Saving..." : "Save"}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-ink-400">No day templates assigned yet — set these up on the Macros tab.</p>
-          )}
 
           {visibleDietHistory.length > 0 && (
             <div className="space-y-2">
@@ -499,21 +418,13 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
         <h2 className="section-title">{editingId ? "Edit check-in" : "Log an update"}</h2>
         <p className="text-sm text-ink-500">
           The core fields that actually drive the trend charts, recalibration and decision support. Actual
-          calories/macros default to whatever that date's assigned diet prescribes — edit them where the real
-          day differed. Everything else is optional and tucked under "More details" below.
+          intake for this date is taken from whichever diet applies below — adjust any of them if the real day
+          differed. Everything else is optional and tucked under "More details" below.
         </p>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div>
             <label className="label">Date</label>
-            <input
-              type="date"
-              className="input"
-              value={form.date}
-              onChange={(e) => {
-                set("date", e.target.value);
-                applyDietDefaultsForDate(e.target.value);
-              }}
-            />
+            <input type="date" className="input" value={form.date} onChange={(e) => set("date", e.target.value)} />
           </div>
           <NumField label="Morning weight (kg)" value={form.weightKg} onChange={(v) => set("weightKg", v)} />
           <NumField
@@ -531,26 +442,94 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
           />
         </div>
 
-        <div>
-          <div className="mb-1 flex items-center justify-between">
-            <label className="label mb-0">Actual intake (defaults to the assigned diet for this date)</label>
-            {!editingId && templateMacroForDate(form.date) && (
-              <button
-                type="button"
-                className="text-xs text-apex-600 hover:underline"
-                onClick={() => applyDietDefaultsForDate(form.date)}
-              >
-                Reset to plan
-              </button>
-            )}
+        {activeTemplates.length > 0 ? (
+          <div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-400">
+              Diets currently deployed — adjust any that need updating; this is what gets logged as this date's
+              actual intake
+            </div>
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              {activeTemplates.map(({ template, macro, weekdaysUsed }) => {
+                const edit = getTemplateEdit(template.id, macro, template.calorieKcal);
+                const isDirty =
+                  Number(edit.calorieKcal) !== Math.round(template.calorieKcal) ||
+                  Number(edit.proteinG) !== Math.round(macro.proteinG) ||
+                  Number(edit.fatG) !== Math.round(macro.fatG) ||
+                  Number(edit.carbG) !== Math.round(macro.carbG);
+                const appliesToFormDate = templateMacroForDate(form.date)?.template.id === template.id;
+                return (
+                  <div
+                    key={template.id}
+                    className={`rounded-lg border p-3 text-sm ${
+                      appliesToFormDate ? "border-apex-300 bg-apex-50" : "border-ink-100"
+                    }`}
+                  >
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="font-semibold">{template.name}</span>
+                      <div className="flex items-center gap-2">
+                        {appliesToFormDate && <span className="badge-info">applies to this date</span>}
+                        <span className="text-xs text-ink-400">
+                          {weekdaysUsed.map((w) => WEEKDAY_LABELS[w].slice(0, 3)).join(", ")}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      {(
+                        [
+                          ["calorieKcal", "Kcal"],
+                          ["proteinG", "Protein"],
+                          ["fatG", "Fat"],
+                          ["carbG", "Carbs"]
+                        ] as const
+                      ).map(([field, label]) => (
+                        <div key={field}>
+                          <label className="label">{label}</label>
+                          <input
+                            type="number"
+                            className="input"
+                            value={edit[field]}
+                            onChange={(e) => setTemplateEditField(template.id, macro, template.calorieKcal, field, e.target.value)}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    {isDirty && (
+                      <div className="mt-2 flex items-center justify-between">
+                        <span className="text-xs text-apex-700">
+                          Changed from {Math.round(template.calorieKcal)} kcal · P{Math.round(macro.proteinG)} F
+                          {Math.round(macro.fatG)} C{Math.round(macro.carbG)}
+                        </span>
+                        <div className="flex gap-2">
+                          <button
+                            className="text-xs text-ink-500 hover:underline"
+                            onClick={() =>
+                              setTemplateEdits((prev) => {
+                                const next = { ...prev };
+                                delete next[template.id];
+                                return next;
+                              })
+                            }
+                          >
+                            Revert
+                          </button>
+                          <button
+                            className="btn-primary px-2 py-1 text-xs"
+                            disabled={savingTemplateId === template.id}
+                            onClick={() => saveTemplateEdit(template.id)}
+                          >
+                            {savingTemplateId === template.id ? "Saving..." : "Save"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <NumField label="Calories" value={form.actualCalorieIntake} onChange={(v) => set("actualCalorieIntake", v)} />
-            <NumField label="Protein (g)" value={form.actualProteinG} onChange={(v) => set("actualProteinG", v)} />
-            <NumField label="Fat (g)" value={form.actualFatG} onChange={(v) => set("actualFatG", v)} />
-            <NumField label="Carbs (g)" value={form.actualCarbG} onChange={(v) => set("actualCarbG", v)} />
-          </div>
-        </div>
+        ) : (
+          <p className="text-sm text-ink-400">No day templates assigned yet — set these up on the Macros tab.</p>
+        )}
 
         <div>
           <label className="label">Diet / cardio / plan change notes</label>
@@ -625,7 +604,13 @@ export default function CheckInsTab({ client, onChanged }: { client: FullClient;
 
         <div className="flex gap-2">
           <button className="btn-primary" disabled={saving} onClick={handleSave}>
-            {saving ? "Saving..." : editingId ? "Save changes" : "Log check-in"}
+            {saving
+              ? "Saving..."
+              : editingId
+                ? "Save changes"
+                : Object.keys(templateEdits).length > 0
+                  ? "Log check-in & save diet changes"
+                  : "Log check-in"}
           </button>
           {editingId && (
             <button
